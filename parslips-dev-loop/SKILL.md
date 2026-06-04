@@ -40,7 +40,8 @@ disk edit. **Don't conclude an edit "had no effect" until you've refreshed.**
 |---|---|
 | Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build |
-| Need to see what the app logged | `GET …/<App>.woa/log?contains=…&tail=…` |
+| Need the app's port/name | `GET /apps` — the registry of running apps |
+| Need to see what the app logged | `GET …/<App>.woa/log?contains=…&tail=…` (port from `/apps`) |
 | Aren't sure the dev server is up | `GET /refreshProject` (probe) before anything else |
 
 ## Always probe first
@@ -103,8 +104,10 @@ over HTTP in dev mode:
 curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'
 ```
 
-Ask the human for the app's port and `.woa` name once (or read them from an early
-console line). To diagnose: add a uniquely greppable marker
+Discover the app's port and name yourself from the dev server's registry — apps
+announce themselves at startup, so `curl -s 'http://localhost:9485/apps'` returns
+each app's `name` and `port`; build the log URL from that. To diagnose: add a
+uniquely greppable marker
 (`log.info("MYDEBUG …")`), refresh/restart, exercise the app, read back with
 `contains=MYDEBUG`, then remove the marker. This replaces asking the human to paste
 the console. Buffer is the last ~2000 lines, captured after logging init (so early
