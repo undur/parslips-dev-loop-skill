@@ -9,7 +9,9 @@ description: >-
   browser still shows old behavior after your edit; you want to validate a
   template for errors without rendering it; you added debug logging and want to
   read what printed; you need to check whether a Java change hot-swapped or
-  requires a restart; or changes "aren't reflecting" in the running app. The skill
+  requires a restart; you need to know an app's port or which of its dependencies
+  have source open in the workspace; or changes "aren't reflecting" in the running
+  app. The skill
   drives the Parslips Eclipse plugin's dev server (HTTP on localhost:9485) and the
   running app's log endpoint to refresh, rebuild, validate templates, and fetch
   console output — closing the edit→build→run loop without manual steps or asking
@@ -40,7 +42,7 @@ disk edit. **Don't conclude an edit "had no effect" until you've refreshed.**
 |---|---|
 | Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build |
-| Need the app's port/name | `GET /apps` — the registry of running apps |
+| Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
 | Need to see what the app logged | `GET …/<App>.woa/log?contains=…&tail=…` (port from `/apps`) |
 | Aren't sure the dev server is up | `GET /refreshProject` (probe) before anything else |
 
@@ -55,6 +57,17 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:9485/refreshProject
 `200` → you're good. Connection refused → **stop and tell the human** Eclipse isn't
 running or the plugin isn't loaded (don't keep retrying or work blind). The dev
 server is loopback-only with no auth, so all calls are plain local `curl`.
+
+## Know your source reach
+
+`GET /apps?name=APP` returns, besides the port, a `dependencies` array — the app's
+dependencies whose **source is open in the workspace**, each with its on-disk `path`
+and `sourceFolders`. These are the libraries you can actually read and edit; jar-only
+dependencies are omitted. So when a question crosses into a framework or dependency
+(why does `ERExtensions` do X, is the bug in `helium5` or here), check `/apps` first:
+if it's listed, read its real source at the given path instead of guessing from
+behavior — and you can fix bugs across that boundary, not just in the app. If it's not
+listed, you don't have its source in this workspace; say so rather than inventing it.
 
 ## Validate templates — your highest-value habit
 
