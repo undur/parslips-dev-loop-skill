@@ -1,0 +1,10 @@
+{
+  "_comment": "Merge this into ~/.claude/settings.json (personal) or a project's .claude/settings.json. It allows the parslips-dev-loop skill's curl calls to the loopback dev server and local app without prompting on each call. Adjust the app port (1200 here) to match your app. If you already have a permissions.allow array, add these entries to it rather than replacing the block.",
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:9485/*)",
+      "Bash(curl -s -o /dev/null -w * http://localhost:9485/*)",
+      "Bash(curl -s http://localhost:1200/cgi-bin/WebObjects/*)"
+    ]
+  }
+}
