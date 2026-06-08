@@ -43,6 +43,7 @@ disk edit. **Don't conclude an edit "had no effect" until you've refreshed.**
 | Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build |
 | Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
+| Need to start / stop an app | `GET /launch?app=NAME` / `GET /stop?app=NAME` |
 | Need to see what the app logged | `GET …/<App>.woa/log?contains=…&tail=…` (port from `/apps`) |
 | Aren't sure the dev server is up | `GET /refreshProject` (probe) before anything else |
 
@@ -107,6 +108,23 @@ A debug-mode JVM hot-swaps **method bodies**. It cannot hot-swap **shape changes
 HotswapAgent the swappable set is larger, but new classes and constructors still
 restart.) So if a refresh changes nothing and your edit was structural, say "this
 needs an app restart" rather than assuming the refresh failed.
+
+## Start and stop apps
+
+When an edit needs a restart (above), you can do the restart yourself rather than
+asking the human:
+
+```bash
+curl -s 'http://localhost:9485/stop?app=MyApp'      # stop it (clean terminate)
+curl -s 'http://localhost:9485/launch?app=MyApp'    # start it (debug mode — needed for hot reload)
+```
+
+`/launch` with no arg lists the configs. **Be careful which config you start:** a
+project often has several (e.g. `MyApp - Local`, `MyApp - Production`). The endpoint
+prefers a `local`/`dev` config and refuses to guess when it's ambiguous — if you get
+`{"launched":false,"candidates":[…]}`, pick an exact name; **don't** blindly launch
+something that might be Production. If a hot reload wedged the JVM and a clean stop
+won't take, `/stop?app=MyApp&force=true` hard-kills it.
 
 ## Read the app's console
 
