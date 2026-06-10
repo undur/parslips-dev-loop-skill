@@ -44,7 +44,7 @@ disk edit. **Don't conclude an edit "had no effect" until you've refreshed.**
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build |
 | Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
 | Need to start / stop an app | `GET /launch?app=NAME` / `GET /stop?app=NAME` |
-| Need to see what the app logged | `GET …/<App>.woa/log?contains=…&tail=…` (port from `/apps`) |
+| Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
 | Aren't sure the dev server is up | `GET /refreshProject` (probe) before anything else |
 
 ## Always probe first
@@ -128,11 +128,12 @@ won't take, `/stop?app=MyApp&force=true` hard-kills it.
 
 ## Read the app's console
 
-The running app (on Wonder, via wonder-slim's ERExtensions) serves its recent log
-over HTTP in dev mode:
+The running app serves its recent log over HTTP in dev mode. The URL form depends on
+the runtime — same parameters on both:
 
 ```bash
-curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'
+curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'   # WebObjects/Wonder
+curl -s 'http://localhost:1200/ng/dev/log?contains=MYDEBUG&tail=40'                         # ng-objects
 ```
 
 Discover the app's port and name yourself from the dev server's registry — apps

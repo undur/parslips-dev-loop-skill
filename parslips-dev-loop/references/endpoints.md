@@ -28,9 +28,9 @@ The hooks work the same for both runtimes; two things differ:
 
 - **Project type** — `project.base=ng` or `project.base=wo` in `build.properties`
   (selects component types, validation root, template format; absent → probed).
-- **Log endpoint** — lives in the app runtime, not this plugin. On WebObjects/Wonder
-  it ships in **wonder-slim's ERExtensions**; other runtimes may lack it (the dev
-  server and `/validate` still work).
+- **Log endpoint URL** — the endpoint lives in the app runtime, not this plugin, and
+  the URL form differs: on WebObjects/Wonder (wonder-slim's ERExtensions) it's
+  `…/<App>.woa/log`; on ng-objects it's `…/ng/dev/log`. Same parameters on both.
 
 ## Dev server
 
@@ -108,7 +108,8 @@ Each app entry looks like:
 
 Two things you get from this:
 
-- **Port** — build the log URL yourself: `…:<port>/cgi-bin/WebObjects/<name>.woa/log`.
+- **Port** — build the log URL yourself: `…:<port>/cgi-bin/WebObjects/<name>.woa/log`
+  (WO) or `…:<port>/ng/dev/log` (ng).
   `lastSeen` is epoch-millis of the app's last startup announcement — "last seen," not a
   liveness guarantee, so treat a stale entry (or a connection refusal on that port) as
   "that app isn't running now."
@@ -165,11 +166,11 @@ curl -s 'http://localhost:9485/validate?component=ASISearchPage&project=MyApp'
 
 ## Log endpoint
 
-From the app runtime (wonder-slim ERExtensions on WebObjects/Wonder). **Dev mode
-only** — 404 in production.
+From the app runtime. **Dev mode only.** The URL form depends on the runtime:
 
 ```
-http://localhost:<PORT>/cgi-bin/WebObjects/<App>.woa/log
+http://localhost:<PORT>/cgi-bin/WebObjects/<App>.woa/log    # WebObjects/Wonder (wonder-slim ERExtensions)
+http://localhost:<PORT>/ng/dev/log                          # ng-objects
 ```
 
 Get `<PORT>` and `<App>` from `/apps` (above) rather than guessing — e.g.
