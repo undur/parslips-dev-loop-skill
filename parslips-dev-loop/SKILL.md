@@ -30,24 +30,24 @@ relaying anything by hand.
 
 ## The core problem
 
-When you edit a **Java** file on disk, Eclipse doesn't notice — it only tracks edits
-made through its own editor. So your change sits there: no recompile, no
-revalidation, and a running app keeps using stale `.class` files. From the outside
-your edit appears to do nothing. The hooks below are how you make Eclipse act on a
-disk edit. **Don't conclude a Java edit "had no effect" until you've refreshed.**
+When you edit **any file in the project** on disk — Java `.class`, template `.html`,
+`.wod`, anything — Eclipse doesn't notice, because it only tracks edits made through
+its own editor. So your change sits there and the running app keeps using the old
+state. From the outside your edit appears to do nothing.
 
-**Templates are different: in dev mode they are NOT cached.** A `.html`/`.wod` edit
-is picked up on the next request with no refresh and no restart — just save and
-reload the page. So a template-only change never needs a restart; you only
-`/validate` it to catch mistakes before rendering. (Restarting after a pure template
-edit — as is easy to do out of habit — is wasted work.)
+**So the rule is simple and absolute: after editing ANY project file, run
+`/refreshProject`. Always — templates and Java alike. Assume nothing changes until
+you've refreshed.** This is the one habit that makes the whole loop work; the most
+common mistake is skipping the refresh for a "mere template edit" and then wondering
+why the page looks unchanged.
 
 ## When to do what
 
 | You just… | Do this |
 |---|---|
-| Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free. Not cached in dev → **no refresh/restart**, just reload the page |
+| Edited a template (`.html`/`.wod`) | `GET /refreshProject?project=NAME` (**always**), then `GET /validate?component=NAME` to catch errors |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
+| Edited **any** project file | `GET /refreshProject` — no exceptions; assume nothing changed until you do |
 | Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
 | Need to start / stop an app | `GET /launch?app=NAME` / `GET /stop?app=NAME` |
 | Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
@@ -89,10 +89,11 @@ curl -s 'http://localhost:9485/validate?component=ASISearchPage'
 
 Returns JSON: `problems` empty → clean; each problem has `severity`, `line`
 (1-based), `charStart`/`charEnd`, `message`, `file`. `"found":false` → the name
-didn't resolve (check spelling/project). It refreshes from disk itself, so you
-needn't call `/refreshProject` first. **`/refreshProject` does not validate
-templates** — validation is editor-driven — so always `/validate` explicitly after
-a template edit.
+didn't resolve (check spelling/project). **`/refreshProject` does not validate
+templates** (validation is editor-driven) and `/validate` does not make your template
+edit take effect in the running app — they're separate. So after a template edit do
+**both**: `/refreshProject` (so the change takes effect) **and** `/validate` (to catch
+mistakes before rendering).
 
 ## Refresh + build after a Java edit
 
@@ -108,30 +109,34 @@ new classes exist.
 
 ### What reloads vs. what needs a restart
 
-**This developer runs the JetBrains Runtime (JBR) with DCEVM**, which reloads far
-more than a stock JVM: not just method bodies but **structural changes too** — new
-and removed methods/fields, changed signatures, and new classes all reload live via
-`/refreshProject`, no restart. Treat the default assumption as **"a Java edit hot-reloads;
-don't restart."**
+First: **you must `/refreshProject` regardless** — reloading is what a refresh *does*,
+so nothing (Java or template) takes effect without it. The question here is only
+whether, after the refresh, the change reloads into the running app or additionally
+needs a restart.
 
-Only genuinely heavy changes need an app restart:
+**This dev environment is the JetBrains Runtime (JBR) with DCEVM + HotswapAgent**
+(they run together as one stack). That combination reloads far more than a stock JVM:
+not just method bodies but **structural changes too** — new/removed methods and fields,
+changed signatures, new classes, constructor changes — all reload live on
+`/refreshProject`, no restart. Treat the default assumption as **"refresh, and it
+reloads; don't restart."**
+
+Only genuinely heavy changes need an app restart on top of the refresh:
 - **classpath changes** (new/updated dependency, changed `pom.xml`/build path)
 - **project-structure changes** (new source folder, module layout)
-- occasional very complex reloads DCEVM can't apply cleanly
+- the occasional very complex reload the agent can't apply cleanly
 
-A stock JVM (plain debug mode, no DCEVM) is much more limited — it swaps only method
-bodies and needs a restart for any shape/constructor change. If you're unsure which
-runtime is in play, `GET /apps` and the human-side setup notes in
-`references/endpoints.md` clarify it; but for THIS project, assume JBR+DCEVM and don't
-restart for ordinary Java edits. If a refresh genuinely doesn't take (rare), a restart
-is the fallback — not the default.
+A stock JVM (plain debug mode, without DCEVM+HotswapAgent) is much more limited — method
+bodies only, restart for any shape/constructor change — but that is not this setup. Here,
+assume JBR+DCEVM+HotswapAgent and don't restart for ordinary edits. If a refresh genuinely
+doesn't take (rare), a restart is the fallback — not the default.
 
 ## Start and stop apps
 
-Restarts are rarely needed (see above — templates aren't cached, and JBR+DCEVM
-reloads structural Java changes). But when one genuinely is — a classpath or
-project-structure change, or the app isn't running yet — you can do it yourself
-rather than asking the human:
+Restarts are rarely needed — after the mandatory `/refreshProject`, JBR+DCEVM+HotswapAgent
+reloads both template and structural Java changes live. But when one genuinely is
+needed — a classpath or project-structure change, or the app isn't running yet — you
+can do it yourself rather than asking the human:
 
 ```bash
 curl -s 'http://localhost:9485/stop?app=MyApp'      # stop it (clean terminate)
@@ -167,10 +172,10 @@ boot output isn't there).
 ## A full iteration
 
 ```bash
-# template edit → validate before rendering
-curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'
-# java edit → rebuild (incremental)
+# ANY project edit (template or Java) → refresh first, always — nothing takes effect otherwise
 curl -s 'http://localhost:9485/refreshProject?project=MyApp'
+# template edit → also validate to catch mistakes before rendering
+curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'
 # exercise the app, then read what it logged
 curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'
 ```

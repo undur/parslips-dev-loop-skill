@@ -61,8 +61,8 @@ curl -s 'http://localhost:9485/launch?app=MyApp'             # launch by project
 curl -s 'http://localhost:9485/launch?app=MyApp&mode=run'    # run mode (default is debug)
 ```
 
-Mode defaults to **debug** — the dev loop (hot-code-replace via JBR + DCEVM) needs a
-debug JVM, so launch in debug unless you have a reason not to.
+Mode defaults to **debug** — the dev loop (hot-code-replace via JBR + DCEVM +
+HotswapAgent) needs a debug JVM, so launch in debug unless you have a reason not to.
 
 Only **Java application** launch configurations are considered (and listed) — Maven
 builds, JUnit runs etc. in the workspace's config pool are ignored, even on an exact
@@ -137,19 +137,21 @@ curl -s 'http://localhost:9485/refreshProject?project=MyApp'   # omit project �
 
 The call blocks until the build settles, so on return the new `.class` files exist.
 
-**Hot-swap reach:** this project runs the **JetBrains Runtime (JBR) with DCEVM**,
-which reloads **structural changes too** — new/removed methods and fields, signature
-changes, new classes, and constructor changes all reload live via `/refreshProject`,
-no restart. Assume an ordinary Java edit hot-reloads and **don't** restart for it.
-Only heavy changes need a restart: **classpath changes** (new/updated dependency,
-`pom.xml`/build-path edits), **project-structure changes** (new source folder/module),
-or the rare reload DCEVM can't apply. A stock debug JVM without DCEVM is far more
-limited — method bodies only, restart for any shape/constructor change — so this reach
-is specific to the JBR+DCEVM setup. If a refresh genuinely doesn't take (rare), a
-restart is the fallback, not the default.
+**Refresh is mandatory for every edit:** any change to a project file — Java OR
+template — needs `/refreshProject` to take effect. Assume nothing changed until you
+refresh. (`/validate` checks a template but does not make it take effect.)
 
-Also note templates are **not cached in dev** — a `.html`/`.wod` edit shows on the
-next page load with no refresh or restart; just `/validate` it.
+**Hot-swap reach:** this project runs the **JetBrains Runtime (JBR) with DCEVM +
+HotswapAgent** (one combined stack), which reloads **structural changes too** —
+new/removed methods and fields, signature changes, new classes, and constructor
+changes all reload live on `/refreshProject`, no restart. So after refreshing, an
+ordinary edit is live and you **don't** restart. Only heavy changes need a restart on
+top of the refresh: **classpath changes** (new/updated dependency, `pom.xml`/build-path
+edits), **project-structure changes** (new source folder/module), or the rare reload the
+agent can't apply. A stock debug JVM without DCEVM+HotswapAgent is far more limited —
+method bodies only, restart for any shape/constructor change — but that is not this
+setup. If a refresh genuinely doesn't take (rare), a restart is the fallback, not the
+default.
 
 ### `/validate` — catch template errors without rendering
 
