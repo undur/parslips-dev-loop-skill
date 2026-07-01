@@ -30,18 +30,24 @@ relaying anything by hand.
 
 ## The core problem
 
-When you edit a file **on disk**, Eclipse doesn't notice — it only tracks edits
+When you edit a **Java** file on disk, Eclipse doesn't notice — it only tracks edits
 made through its own editor. So your change sits there: no recompile, no
 revalidation, and a running app keeps using stale `.class` files. From the outside
 your edit appears to do nothing. The hooks below are how you make Eclipse act on a
-disk edit. **Don't conclude an edit "had no effect" until you've refreshed.**
+disk edit. **Don't conclude a Java edit "had no effect" until you've refreshed.**
+
+**Templates are different: in dev mode they are NOT cached.** A `.html`/`.wod` edit
+is picked up on the next request with no refresh and no restart — just save and
+reload the page. So a template-only change never needs a restart; you only
+`/validate` it to catch mistakes before rendering. (Restarting after a pure template
+edit — as is easy to do out of habit — is wasted work.)
 
 ## When to do what
 
 | You just… | Do this |
 |---|---|
-| Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free |
-| Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build |
+| Edited a template (`.html`/`.wod`) | `GET /validate?component=NAME` — confirm it's error-free. Not cached in dev → **no refresh/restart**, just reload the page |
+| Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
 | Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
 | Need to start / stop an app | `GET /launch?app=NAME` / `GET /stop?app=NAME` |
 | Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
@@ -102,17 +108,30 @@ new classes exist.
 
 ### What reloads vs. what needs a restart
 
-A debug-mode JVM hot-swaps **method bodies**. It cannot hot-swap **shape changes**
-(new/removed methods or fields, changed signatures, new classes) or
-**constructor-level changes** — those need an **app restart**. (With JBR +
-HotswapAgent the swappable set is larger, but new classes and constructors still
-restart.) So if a refresh changes nothing and your edit was structural, say "this
-needs an app restart" rather than assuming the refresh failed.
+**This developer runs the JetBrains Runtime (JBR) with DCEVM**, which reloads far
+more than a stock JVM: not just method bodies but **structural changes too** — new
+and removed methods/fields, changed signatures, and new classes all reload live via
+`/refreshProject`, no restart. Treat the default assumption as **"a Java edit hot-reloads;
+don't restart."**
+
+Only genuinely heavy changes need an app restart:
+- **classpath changes** (new/updated dependency, changed `pom.xml`/build path)
+- **project-structure changes** (new source folder, module layout)
+- occasional very complex reloads DCEVM can't apply cleanly
+
+A stock JVM (plain debug mode, no DCEVM) is much more limited — it swaps only method
+bodies and needs a restart for any shape/constructor change. If you're unsure which
+runtime is in play, `GET /apps` and the human-side setup notes in
+`references/endpoints.md` clarify it; but for THIS project, assume JBR+DCEVM and don't
+restart for ordinary Java edits. If a refresh genuinely doesn't take (rare), a restart
+is the fallback — not the default.
 
 ## Start and stop apps
 
-When an edit needs a restart (above), you can do the restart yourself rather than
-asking the human:
+Restarts are rarely needed (see above — templates aren't cached, and JBR+DCEVM
+reloads structural Java changes). But when one genuinely is — a classpath or
+project-structure change, or the app isn't running yet — you can do it yourself
+rather than asking the human:
 
 ```bash
 curl -s 'http://localhost:9485/stop?app=MyApp'      # stop it (clean terminate)

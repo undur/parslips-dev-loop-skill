@@ -61,7 +61,7 @@ curl -s 'http://localhost:9485/launch?app=MyApp'             # launch by project
 curl -s 'http://localhost:9485/launch?app=MyApp&mode=run'    # run mode (default is debug)
 ```
 
-Mode defaults to **debug** — the dev loop (hot-code-replace / HotswapAgent) needs a
+Mode defaults to **debug** — the dev loop (hot-code-replace via JBR + DCEVM) needs a
 debug JVM, so launch in debug unless you have a reason not to.
 
 Only **Java application** launch configurations are considered (and listed) — Maven
@@ -137,11 +137,19 @@ curl -s 'http://localhost:9485/refreshProject?project=MyApp'   # omit project �
 
 The call blocks until the build settles, so on return the new `.class` files exist.
 
-**Hot-swap reach:** a debug JVM swaps **method bodies**. Shape changes (new/removed
-methods or fields, signature changes, new classes) and constructor changes need an
-**app restart** — more swaps with JBR + HotswapAgent (see Setup), but new classes
-and constructors still restart. If a refresh changes nothing, suspect a shape change
-and restart rather than assuming failure.
+**Hot-swap reach:** this project runs the **JetBrains Runtime (JBR) with DCEVM**,
+which reloads **structural changes too** — new/removed methods and fields, signature
+changes, new classes, and constructor changes all reload live via `/refreshProject`,
+no restart. Assume an ordinary Java edit hot-reloads and **don't** restart for it.
+Only heavy changes need a restart: **classpath changes** (new/updated dependency,
+`pom.xml`/build-path edits), **project-structure changes** (new source folder/module),
+or the rare reload DCEVM can't apply. A stock debug JVM without DCEVM is far more
+limited — method bodies only, restart for any shape/constructor change — so this reach
+is specific to the JBR+DCEVM setup. If a refresh genuinely doesn't take (rare), a
+restart is the fallback, not the default.
+
+Also note templates are **not cached in dev** — a `.html`/`.wod` edit shows on the
+next page load with no refresh or restart; just `/validate` it.
 
 ### `/validate` — catch template errors without rendering
 
