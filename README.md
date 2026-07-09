@@ -8,16 +8,33 @@ Eclipse plugin; Parsley is the template language it edits.)
 
 With it, an agent editing files on disk can:
 
+- **Refresh + rebuild** so Eclipse picks up disk edits and the running app hot-swaps
+  them (`/refreshProject`) — and get a build-error report instead of a false `ok`
+  when the edit didn't compile
 - **Validate a component template** for errors without rendering the page
   (`/validate`)
-- **Refresh + rebuild** so Eclipse picks up disk edits and the running app hot-swaps
-  them (`/refreshProject`)
-- **Read the running app's console** over HTTP instead of asking you to paste it
-  (`…/App.woa/log`)
-- Know **what hot-swaps vs. what needs an app restart**
+- **See what's running** — per launch config: running/mode/uptime, project open
+  state, compile errors, the app's registered port (`/status`)
+- **Start, stop and restart apps itself** (`/launch`, `/stop`, `/restart`) — launch
+  refuses with a named reason (closed project, compile errors, already running)
+  instead of pretending to succeed, and `waitForPort` blocks until the app answers
+  or provably died
+- **Go from a fully closed workspace to a running app in one call** —
+  `launch?open=true` opens the project *and its workspace dependencies*
+  (pom-resolved, transitive), clean-builds them, launches and waits
+- **Read startup failures post-mortem** (`/console` — the Eclipse console over
+  HTTP, kept after the process dies) and **read the running app's log**
+  (`…/App.woa/log`) instead of asking you to paste either
+- **Check the Problems view** (`/problems`) and **hunt forgotten breakpoints**
+  (`/breakpoints`, with a Skip All toggle)
+- Know **what hot-swaps vs. what needs an app restart** — and the timing traps
+  (build-settled is not swap-landed)
 
 It exists because Eclipse doesn't notice edits made outside its own editor — so
-without these hooks, an agent's disk edits silently do nothing.
+without these hooks, an agent's disk edits silently do nothing. The dev server is
+self-describing: `GET http://localhost:9485/` returns a JSON index of every
+endpoint, and the skill teaches the agent to trust that index over its own docs
+(older plugin builds expose a smaller endpoint set; the skill degrades gracefully).
 
 ## Install (personal — all your projects)
 
