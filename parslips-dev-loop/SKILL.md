@@ -30,8 +30,7 @@ relaying anything by hand.
 
 ## The core problem
 
-When you edit **any file in the project** on disk — Java `.class`, template `.html`,
-`.wod`, anything — Eclipse doesn't notice, because it only tracks edits made through
+When you edit **any file in the project** on disk — Java source, templates (`.html`/`.wod`), anything — Eclipse doesn't notice, because it only tracks edits made through
 its own editor. So your change sits there and the running app keeps using the old
 state. From the outside your edit appears to do nothing.
 
@@ -48,22 +47,36 @@ why the page looks unchanged.
 | Edited a template (`.html`/`.wod`) | `GET /refreshProject?project=NAME` (**always**), then `GET /validate?component=NAME` to catch errors |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
 | Edited **any** project file | `GET /refreshProject` — no exceptions; assume nothing changed until you do |
+| Want to know what's running | `GET /status` (or `?app=NAME`) — running/mode/uptime, project open state, compile errors, registered port |
 | Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
-| Need to start / stop an app | `GET /launch?app=NAME` / `GET /stop?app=NAME` |
+| Need to start an app | `GET /launch?app=NAME&waitForPort=PORT` — blocks until it answers or provably failed |
+| Workspace cold (projects closed) | `GET /launch?config=NAME&open=true&waitForPort=PORT&timeout=300` — opens the project + its workspace dependencies, clean-builds, launches, waits |
+| Need to restart (classpath change, wedged reload) | `GET /restart?app=NAME&refresh=PROJ1,PROJ2&waitForPort=PORT` — the whole stop/refresh/launch/wait cycle in one call |
+| Launch/startup failed, or app died | `GET /console?app=NAME&tail=200` — the Eclipse console, readable even after the process died |
+| Suspect compile errors | `GET /problems?project=NAME` — the Problems view as JSON |
+| App inexplicably slow/frozen only under Eclipse | `GET /breakpoints` — a forgotten breakpoint on a hot class; `?skipAll=true` disarms them all |
 | Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
-| Aren't sure the dev server is up | `GET /refreshProject` (probe) before anything else |
+| Aren't sure the dev server is up / what it offers | `GET /` — self-describing JSON index of all endpoints |
+
+(If `/status` or `/` return 404-ish "unknown" responses, the developer is running an
+older plugin build without these endpoints — fall back to `/refreshProject` as the
+probe, `/launch`+port-polling for starts, and the app's own log endpoint for output.)
 
 ## Always probe first
 
 Before relying on the loop, confirm the dev server answers:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}' http://localhost:9485/refreshProject
+curl -s http://localhost:9485/
 ```
 
-`200` → you're good. Connection refused → **stop and tell the human** Eclipse isn't
-running or the plugin isn't loaded (don't keep retrying or work blind). The dev
-server is loopback-only with no auth, so all calls are plain local `curl`.
+A JSON endpoint index → you're good (and the index tells you exactly what this plugin
+build offers — trust it over this document when they disagree). Plain `ok` → an older
+plugin build without the index; the core endpoints (`/refreshProject`, `/validate`,
+`/launch`, `/stop`, `/apps`) still work. Connection refused → **stop and tell the
+human** Eclipse isn't running or the plugin isn't loaded (don't keep retrying or work
+blind). The dev server is loopback-only with no auth, so all calls are plain local
+`curl`.
 
 ## Know your source reach
 
@@ -102,10 +115,24 @@ curl -s 'http://localhost:9485/refreshProject?project=MyApp'   # omit project �
 ```
 
 Keep the default **incremental** build — it produces the per-class delta hot-swap
-needs (same as an in-editor save). **Never pass `clean=true` in the normal loop**:
-it forces a full rebuild that does *not* hot-swap and will make the app *stop*
-picking up your changes. The call blocks until the build settles, so on return the
-new classes exist.
+needs (same as an in-editor save). **Never pass `clean=true` while the app is
+running**: a clean+full rebuild doesn't produce that delta, so the running app
+stops picking up changes (restart to recover). Clean has exactly two homes: build
+recovery, and freshly opened projects — where `/openProject` and `/launch?open=true`
+already do it for you, safely, because nothing is running yet. The call blocks until
+the build settles, so on return the new classes exist.
+
+**Check the response.** Plain `ok` = the build settled clean. A JSON body with
+`buildErrors` = your edit did NOT compile — the app is still running the previous
+classes, and exercising it now tests nothing. Fix the listed problems (or
+`GET /problems?project=NAME` for the full list) before drawing any conclusions.
+
+**The build settling is not the swap landing.** `ok` means the .class files exist;
+the JVM's actual class redefinition follows a beat later. If you exercise the app
+in the same breath as the refresh, a Java change can appear "not to have taken".
+Wait ~2-3s after the refresh before exercising Java changes (template changes
+don't race — they're read per render); if a change still doesn't show, re-exercise
+once before concluding the swap failed.
 
 ### What reloads vs. what needs a restart
 
@@ -139,9 +166,36 @@ needed — a classpath or project-structure change, or the app isn't running yet
 can do it yourself rather than asking the human:
 
 ```bash
-curl -s 'http://localhost:9485/stop?app=MyApp'      # stop it (clean terminate)
-curl -s 'http://localhost:9485/launch?app=MyApp'    # start it (debug mode — needed for hot reload)
+# one call for the whole cycle: stop, wait for termination, rebuild projects, launch, wait for ready
+curl -s 'http://localhost:9485/restart?app=MyApp&refresh=my-model,MyApp&waitForPort=1200'
+
+# or the pieces individually:
+curl -s 'http://localhost:9485/stop?app=MyApp'                          # clean terminate
+curl -s 'http://localhost:9485/launch?app=MyApp&waitForPort=1200'       # start (debug mode) and block until ready
 ```
+
+With `waitForPort` the response only comes back once the app answers on that port
+(`"ready":true` + `startupMillis`), the process died (`"ready":false` with a pointer
+at `/console` — go read the startup failure there), or the timeout (default 60s)
+passed. **No more hand-rolled polling loops.**
+
+Don't know the port? It lives in the launch config's arguments, so you can't read it
+up front. Launch **without** `waitForPort`, then poll `/status?app=NAME` — the app
+registers its port with the dev server at startup, and `registered: {port, reachable}`
+appearing (reachable true) is your readiness signal. `/console` also shows it (WO apps
+print `WOPort=N` early in startup). Once known, use `waitForPort` from then on.
+
+`/launch` refuses — with a named reason and the parameter that overrides it — instead
+of pretending to succeed, when:
+- the **project is closed** in the workspace → pass `open=true`, which opens the
+  project **and its workspace dependencies** (transitively, pom-resolved — Maven
+  workspace resolution only sees open projects, so opening just one isn't enough)
+  and clean-builds them (freshly opened projects need a clean: their persisted
+  build state is stale and an incremental build no-ops); `/openProject?project=NAME`
+  (or `all`) does the same standalone. So a completely cold workspace to a running
+  app is ONE call: `/launch?config=NAME&open=true&waitForPort=PORT&timeout=300`.
+- the project has **compile errors** → fix them (see the listed problems) or `ignoreErrors=true`
+- a launch of the config is **already running** → use `/restart`, or `allowMultiple=true`
 
 `/launch` with no arg lists the configs. **Be careful which config you start:** a
 project often has several (e.g. `MyApp - Local`, `MyApp - Production`). The endpoint
@@ -150,7 +204,27 @@ prefers a `local`/`dev` config and refuses to guess when it's ambiguous — if y
 something that might be Production. If a hot reload wedged the JVM and a clean stop
 won't take, `/stop?app=MyApp&force=true` hard-kills it.
 
-## Read the app's console
+## Startup failures: read the Eclipse console
+
+The app's own log endpoint only exists once the app is up — a launch that dies during
+startup is invisible there. The plugin captures every launch's console, and keeps it
+after the process dies:
+
+```bash
+curl -s 'http://localhost:9485/console?app=MyApp&tail=200'
+```
+
+First line is a status header (`# config: … state: running|terminated exit: N`), the
+rest is the raw console tail — stack traces and all. This is the post-mortem for
+"launched":true-but-nothing-listening, and the place to look whenever `waitForPort`
+reports the process terminated.
+
+## Read the app's log
+
+(Not the same as `/console` above: the **log endpoint** lives in the running app,
+is filterable with `contains=`, and dies with the app; `/console` is the raw Eclipse
+console, unfiltered, and survives the app's death. Debugging markers → log endpoint;
+startup failures → `/console`.)
 
 The running app serves its recent log over HTTP in dev mode. The URL form depends on
 the runtime — same parameters on both:
@@ -176,6 +250,8 @@ boot output isn't there).
 curl -s 'http://localhost:9485/refreshProject?project=MyApp'
 # template edit → also validate to catch mistakes before rendering
 curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'
+# Java edit → give the class redefinition a beat to land before exercising
+sleep 2
 # exercise the app, then read what it logged
 curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'
 ```

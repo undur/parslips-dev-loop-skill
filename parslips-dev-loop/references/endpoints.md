@@ -35,20 +35,32 @@ The hooks work the same for both runtimes; two things differ:
 ## Dev server
 
 `http://localhost:9485` — **loopback only**, no auth (loopback *is* the trust
-boundary). Plain `GET`; `/validate` returns JSON, the rest return `ok`. Port is
-configurable in Eclipse prefs.
+boundary). Plain `GET`; responses are JSON (`/console` is plain text; `/refreshProject`
+and a few fire-and-forget endpoints answer `ok` on success). Port is configurable in
+Eclipse prefs.
 
 | Endpoint | Params | Does |
 |---|---|---|
-| `/refreshProject` | `project?`, `build?`, `clean?` | Refresh project(s) from disk + incremental build. Use after editing. |
+| `/` (or `/help`) | | Self-describing JSON index of every endpoint. Unknown paths answer with it too. |
+| `/status` | `app?` | Ground truth per launch config: running/mode/uptime, project open state, compile errors, registered port/pid + reachability. |
+| `/refreshProject` | `project?`, `build?`, `clean?` | Refresh project(s) from disk + incremental build. Returns `ok` on a clean build, a JSON `buildErrors` report otherwise. Use after editing. |
+| `/problems` | `project?`, `severity?`, `limit?` | Problem markers (the Problems view) as JSON; errors only by default. |
 | `/validate` | `component`, `project?` | Validate a component's template, return problems as JSON. |
 | `/refresh` | `path` | Refresh one resource path. |
 | `/apps` | `name?` | Discover running apps and their ports (so you don't have to be told the port). |
-| `/launch` | `config?`/`app?`, `mode?` | List launch configs, or start one. |
+| `/launch` | `config?`/`app?`, `mode?`, `open?`, `ignoreErrors?`, `allowMultiple?`, `waitForPort?`, `timeout?` | List launch configs, or start one — with preflight (closed project, compile errors, already running each refuse with a named override) and optional wait-until-ready. |
 | `/stop` | `app`, `force?` | Stop a running app (terminate, or `force=true` to hard-kill). |
+| `/restart` | `app`, `refresh?` (+ `/launch` params) | stop → wait for termination → refresh+rebuild named projects → launch. Per-stage results. |
+| `/console` | `app`, `tail?` | The launch's console output (default last 100 lines) — kept after the process dies; the startup-failure post-mortem. |
+| `/breakpoints` | `skipAll?` | List workspace breakpoints; `skipAll=true/false` toggles the Skip All Breakpoints master switch. |
+| `/openProject` | `project` (or `all`), `related?` | Open a closed project **plus its workspace dependencies** (transitive, pom-resolved). `related=false` for just the one. |
 | `/openComponent` | `app?`, `component`, `lineNumber?`, `offset?`, `length?` | Open a component, reveal a position. |
 | `/openJavaFile` | `className`, `lineNumber`, `app?` | Open a Java file at a line. |
 | `/registerApp` | `name`, `port`, `pid?` | (App-side, automatic) An app announces its port at startup. You won't call this. |
+
+(Older plugin builds lack `/`, `/status`, `/problems`, `/console`, `/restart`,
+`/breakpoints` and the `/launch` preflight/wait parameters — probe `/` first; a plain
+`ok` response means you're on an old build and should use the classic subset.)
 
 ### `/launch` and `/stop` — start and stop apps
 
@@ -59,6 +71,33 @@ curl -s 'http://localhost:9485/launch'                       # list configs: {"c
 curl -s 'http://localhost:9485/launch?config=MyApp%20-%20Local'   # launch by exact config name
 curl -s 'http://localhost:9485/launch?app=MyApp'             # launch by project name
 curl -s 'http://localhost:9485/launch?app=MyApp&mode=run'    # run mode (default is debug)
+curl -s 'http://localhost:9485/launch?app=MyApp&waitForPort=1200&timeout=90'   # block until ready/dead/timeout
+```
+
+**Preflight — `/launch` refuses instead of lying.** Each refusal names the reason and
+the parameter that overrides it:
+
+- Project **closed** in the workspace → `{"launched":false,"reason":"project … is closed"}`;
+  pass `open=true` — it opens the project **and its workspace dependencies**
+  (transitively, pom-resolved; the response lists what it opened). Opening just the
+  target would only trade the refusal for build-path errors, since Maven workspace
+  resolution only sees open projects.
+- Project has **compile errors** → the errors are listed; fix them or pass `ignoreErrors=true`.
+- Config **already running** → use `/restart` (or `allowMultiple=true` if you really
+  mean a second instance).
+
+**`waitForPort=N`** delays the response until something listens on port N
+(`"ready":true` with `startupMillis`), the launched process terminates
+(`"ready":false` — go read `/console`), or `timeout` seconds (default 60) pass.
+Prefer it over hand-rolled polling: it also distinguishes "slow startup" from
+"died at startup", which a port poll alone cannot.
+
+**`/restart`** composes the full cycle — stop, wait for actual termination, refresh
+and rebuild the projects named in `refresh=proj1,proj2`, then launch (all `/launch`
+parameters pass through):
+
+```bash
+curl -s 'http://localhost:9485/restart?app=MyApp&refresh=my-model&waitForPort=1200'
 ```
 
 Mode defaults to **debug** — the dev loop (hot-code-replace via JBR + DCEVM +
@@ -178,6 +217,40 @@ curl -s 'http://localhost:9485/validate?component=ASISearchPage&project=MyApp'
 - **`/refreshProject` does not validate templates** (validation is editor-driven) —
   call `/validate` explicitly after a template edit.
 
+### `/console` — the Eclipse console, including post-mortem
+
+The app's own log endpoint (below) only exists once the app is up. `/console` serves
+the launch's console output captured by the plugin — and keeps it after the process
+dies, which is precisely when you need it:
+
+```bash
+curl -s 'http://localhost:9485/console?app=MyApp&tail=200'
+```
+
+First line is a status header (`# config: MyApp - Local  state: terminated  exit: 1`),
+the rest is the raw tail. Use it whenever a launch "succeeded" but nothing listens,
+whenever `waitForPort` reports the process terminated, and for anything the app printed
+before its logging/HTTP came up. One buffer per launch config, latest launch wins,
+capped at ~400k characters.
+
+### `/status` and `/problems` — workspace ground truth
+
+```bash
+curl -s 'http://localhost:9485/status?app=MyApp'      # running? mode? uptime? project open? compile errors? registered port reachable?
+curl -s 'http://localhost:9485/problems?project=MyApp'  # the Problems view as JSON (errors by default; severity=warning for more)
+```
+
+`/status` without `app` covers every launch config — the one-call answer to "what is
+this workspace running right now". `/problems` is the check to run when a refresh
+reported build errors, or before concluding that an edit "did nothing".
+
+### `/breakpoints` — the forgotten-breakpoint check
+
+An app that is inexplicably slow or frozen **only when Eclipse-launched** may just be
+sitting on a forgotten breakpoint. `curl -s 'http://localhost:9485/breakpoints'` lists
+them (resource, line, enabled) plus the Skip All Breakpoints state;
+`?skipAll=true` disarms them all non-destructively, `?skipAll=false` re-arms.
+
 ## Log endpoint
 
 From the app runtime. **Dev mode only.** The URL form depends on the runtime:
@@ -210,8 +283,9 @@ curl -s '.../9485/refreshProject?project=MyApp'                     # rebuild Ja
 curl -s '.../MyApp.woa/log?contains=MYDEBUG&tail=40'               # read the result
 ```
 
-No change after a refresh + method-body edit → re-run the refresh; shape/constructor
-edit → restart.
+No change after a refresh? First give the class redefinition a beat (~2-3s) and
+re-exercise — the build settling and the JVM swap landing are two moments. Still
+nothing → re-run the refresh; restart only for classpath/project-structure changes.
 
 ## Template conventions
 
@@ -232,5 +306,5 @@ edit → restart.
    `HOTSWAP AGENT: … reload` line confirms swaps. Without it, only method-body swaps.
 4. **Log endpoint** — automatic in dev mode from the app runtime. Share the app's
    port and `.woa` name with the agent.
-5. **Confirm:** `curl http://localhost:9485/refreshProject` should respond. Refused →
+5. **Confirm:** `curl http://localhost:9485/` should return the endpoint index. Refused →
    plugin not loaded or wrong port (check Eclipse prefs).
