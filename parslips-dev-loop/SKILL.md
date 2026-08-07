@@ -134,6 +134,15 @@ Wait ~2-3s after the refresh before exercising Java changes (template changes
 don't race — they're read per render); if a change still doesn't show, re-exercise
 once before concluding the swap failed.
 
+**Never verify or "fix" the loop with Maven.** Eclipse resolves inter-project
+dependencies **within the workspace** (open projects reference each other's source
+directly), so the local Maven repository plays no part in this dev cycle. A `mvn
+compile` that fails against a **stale installed jar** (e.g. a sibling project's
+artifact missing a newly added class) is a false alarm — Eclipse builds fine, and
+the answer is `GET /problems?project=NAME`, not `mvn install`. Installing artifacts
+to "fix" such an error wastes time and hides that the workspace was never broken.
+Maven is for release/CI builds, not the edit→run loop.
+
 ### What reloads vs. what needs a restart
 
 First: **you must `/refreshProject` regardless** — reloading is what a refresh *does*,
