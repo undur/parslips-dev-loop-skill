@@ -28,9 +28,10 @@ The hooks work the same for both runtimes; two things differ:
 
 - **Project type** — `project.base=ng` or `project.base=wo` in `build.properties`
   (selects component types, validation root, template format; absent → probed).
-- **Log endpoint URL** — the endpoint lives in the app runtime, not this plugin, and
-  the URL form differs: on WebObjects/Wonder (wonder-slim's ERExtensions) it's
-  `…/<App>.woa/log`; on ng-objects it's `…/ng/dev/log`. Same parameters on both.
+- **App-runtime endpoint URLs** — the `log`, `eval` and `problems` endpoints live in the
+  app runtime, not this plugin, and the URL form differs by runtime: on WebObjects/Wonder
+  (wonder-slim's ERExtensions) it's `…/<App>.woa/<name>`; on ng-objects it's
+  `…/ng/dev/<name>`. Same parameters and JSON shapes on both — only the mount path differs.
 
 ## Dev server
 
@@ -46,6 +47,7 @@ Eclipse prefs.
 | `/refreshProject` | `project?`, `build?`, `clean?` | Refresh project(s) from disk + incremental build. Returns `ok` on a clean build, a JSON `buildErrors` report otherwise. Use after editing. |
 | `/problems` | `project?`, `severity?`, `limit?` | Problem markers (the Problems view) as JSON; errors only by default. |
 | `/validate` | `component`, `project?` | Validate a component's template, return problems as JSON. |
+| `/elementApi` | `element` (name or comma-list), `project?`, `raw?` | The resolved binding API of one or more elements as JSON — bindings with pull/push types and direction, required/default/deprecation, constraints with generated messages, content/unknownAttributes policies. Alias-aware. `raw=true` returns the `.apiext` XML. |
 | `/refresh` | `path` | Refresh one resource path. |
 | `/apps` | `name?` | Discover running apps and their ports (so you don't have to be told the port). |
 | `/launch` | `config?`/`app?`, `mode?`, `open?`, `ignoreErrors?`, `allowMultiple?`, `waitForPort?`, `timeout?` | List launch configs, or start one — with preflight (closed project, compile errors, already running each refuse with a named override) and optional wait-until-ready. |
@@ -216,6 +218,43 @@ curl -s 'http://localhost:9485/validate?component=ASISearchPage&project=MyApp'
   for `.wo` bundles and standalone `.html`.
 - **`/refreshProject` does not validate templates** (validation is editor-driven) —
   call `/validate` explicitly after a template edit.
+- The `$`-in-a-plain-HTML-attribute trap is one of the things it catches: `style="$x"`
+  on a raw `<div>` renders the literal `$x` (plain tags don't evaluate bindings) — a
+  warning nudging you toward a `wo:` element/container. So `/validate` covers that
+  mistake too, not just `wo:`-tag binding errors.
+
+### `/elementApi` — an element's real bindings, as data
+
+The authoritative answer to "what can I bind on this tag, and how" — the editor's own
+resolved element API over HTTP, so you never reverse-engineer bindings from an element's
+Java source.
+
+```bash
+curl -s 'http://localhost:9485/elementApi?element=WOPopUpButton&project=MyApp'
+curl -s 'http://localhost:9485/elementApi?element=str,WOTextField&project=MyApp'   # comma-list; aliases resolve
+curl -s 'http://localhost:9485/elementApi?element=WOString&raw=true'               # canonical .apiext XML instead
+```
+
+```json
+{ "elements":[
+  { "requested":"str", "resolved":"WOString", "kind":"apiext",
+    "api":{ "name":"WOString", "content":"forbidden", "unknownAttributes":"forbidden",
+            "bindings":[ {"name":"value","required":true,"direction":"pull",
+                          "pull":[{"type":"java.lang.Object"}],"push":[], "doc":"…"} ],
+            "constraints":[ {"kind":"choose","max":1,"message":"at most one of 'formatter', 'dateformat' or 'numberformat' may be bound","alternatives":[…]} ] } } ] }
+```
+
+- `element` is required — one name or a comma-separated list. `project`/`app` is an
+  optional hint; without it, the first open project where the element resolves wins.
+- Names resolve through the project's tag aliases exactly as templates do
+  (`str` → `WOString` → `ERXWOString`); `resolved` reports what the name became.
+- Per binding: `pull`/`push` are arrays of `{type, interpretation?}` (interpretation is
+  e.g. `"truthy"`); `direction` is the derived `pull`/`push`/`both`/`none`; plus
+  `required`, `default`, `defaults`, `deprecated`.
+- Constraints carry a generated human `message` (the same sentence the hover shows), so
+  you don't decode the typed rule yourself.
+- `kind`: `apiext` (rich), `api` (legacy, thinner), or `none` (no definition — `api` is
+  null). `raw=true` returns the `.apiext` XML for `apiext` elements (null otherwise).
 
 ### `/console` — the Eclipse console, including post-mortem
 
@@ -274,6 +313,65 @@ Replaces "paste the console." Diagnose: add a unique marker
 
 Buffer: last ~2000 lines, captured after logging init (so early *boot* output isn't
 there); one entry per event, stack traces included.
+
+## Eval endpoint
+
+From the app runtime. **Dev mode + loopback only.** Evaluates a Java snippet inside the
+running JVM, against the app's live classes/statics/data — not a separate `jshell`. URL
+form mirrors the log endpoint:
+
+```
+http://localhost:<PORT>/cgi-bin/WebObjects/<App>.woa/eval    # WebObjects/Wonder
+http://localhost:<PORT>/ng/dev/eval                          # ng-objects
+```
+
+```bash
+curl -s '.../eval?snippet=1%2B1'                                   # snippet as a query param
+curl -s --data 'MyModel.newContext().performQuery(q).size()' '.../eval'   # or POST the body
+curl -s '.../eval?reset=true&snippet=…'                           # discard the persistent session first
+```
+
+```json
+{ "status":"ok", "value":"2", "diagnostics":[] }
+{ "status":"error", "exception":"java.lang.NumberFormatException: …", "diagnostics":[] }
+{ "status":"error", "value":null, "diagnostics":["cannot find symbol …"] }
+```
+
+- The snippet comes from the `snippet` param, or the raw request body when that's absent.
+- **Persistent session**: `var ctx = …` in one call, use `ctx` in the next. `reset=true`
+  wipes it. Default imports: `java.util.*`, `java.util.stream.*`, `java.time.*`.
+- `System.out`/`err` from a snippet go to the app console — read them via the log endpoint.
+- The point: verify logic against the app's *own* objects and a real data context (a live
+  Cayenne `ObjectContext`, the running app singleton) instead of reconstructing them.
+- Loopback-only (arbitrary code execution). A non-terminating snippet hangs its request;
+  a wedged eval needs an app restart.
+
+## Runtime-problems endpoint
+
+From the app runtime. **Dev mode only.** The binding-error boxes the app renders into
+pages (🐶 ng / 🌿 Parsley), as data instead of scraped HTML:
+
+```
+http://localhost:<PORT>/cgi-bin/WebObjects/<App>.woa/problems    # WebObjects/Wonder
+http://localhost:<PORT>/ng/dev/problems                          # ng-objects
+```
+
+```bash
+curl -s '.../problems?tail=20'
+curl -s '.../problems?contains=WORepetition'
+curl -s '.../problems?clear=true'          # empty the buffer (mark a baseline)
+```
+
+```json
+{ "problems":[ {"time":1783300000000,"kind":"Unknown key","element":"WOString","message":"…"} ], "count":1 }
+```
+
+- `contains=`/`tail=` filter like the log endpoint. `clear=true` empties the buffer.
+- Snapshot-then-`clear`, exercise the app, read back → only the errors that exercise
+  produced. The app-side complement to `/validate`: `/validate` catches template mistakes
+  statically in the editor; this catches the ones that only surface when a request renders.
+- Bounded to the last ~1000 problems; a problem that renders every request is recorded
+  every request (that repetition is signal — it's still live).
 
 ## A loop
 

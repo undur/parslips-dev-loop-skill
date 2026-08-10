@@ -56,6 +56,9 @@ why the page looks unchanged.
 | Suspect compile errors | `GET /problems?project=NAME` — the Problems view as JSON |
 | App inexplicably slow/frozen only under Eclipse | `GET /breakpoints` — a forgotten breakpoint on a hot class; `?skipAll=true` disarms them all |
 | Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
+| Need an element's real bindings/types/constraints | `GET /elementApi?element=NAME&project=NAME` — the editor's own resolved API as JSON; beats reading the element's Java source |
+| Want to run code inside the live app (inspect real objects/data) | `GET …/<App>.woa/eval` (WO) or `…/ng/dev/eval` (ng), `?snippet=…` — a REPL in the running JVM (loopback only) |
+| Need the runtime binding errors the app rendered | `GET …/<App>.woa/problems` (WO) or `…/ng/dev/problems` (ng) — the inline error boxes as JSON, no HTML-scraping |
 | Aren't sure the dev server is up / what it offers | `GET /` — self-describing JSON index of all endpoints |
 
 (If `/status` or `/` return 404-ish "unknown" responses, the developer is running an
@@ -88,6 +91,30 @@ dependencies are omitted. So when a question crosses into a framework or depende
 if it's listed, read its real source at the given path instead of guessing from
 behavior — and you can fix bugs across that boundary, not just in the app. If it's not
 listed, you don't have its source in this workspace; say so rather than inventing it.
+
+## Look up an element's API instead of reading its source
+
+When you need to know an element's real bindings — their types, which way they flow
+(pull/push), what's required, the cross-binding constraints — don't read the element's
+Java to reverse-engineer it. Ask the editor, which already knows:
+
+```bash
+curl -s 'http://localhost:9485/elementApi?element=WOPopUpButton&project=MyApp'
+# multiple at once:
+curl -s 'http://localhost:9485/elementApi?element=WOString,WOTextField&project=MyApp'
+```
+
+Each element comes back as JSON: `bindings` (with `pull`/`push` types, a `direction` of
+`pull`/`push`/`both`/`none`, `required`, `default`, `deprecated`), `constraints` (with
+their generated human `message`, e.g. *"exactly one of 'checked' or 'value' must be
+bound"*), and the `content`/`unknownAttributes` policies. Names resolve exactly as a
+template resolves them — through the project's tag aliases (`str` → `WOString` →
+`ERXWOString`) — and the `resolved` field tells you what the name actually became. Add
+`raw=true` to get the canonical `.apiext` XML instead of the interpreted view.
+
+This is the editor's hover, as data — the authoritative answer to "what can I bind on
+this tag", without opening a file. (`kind` tells you where it came from: `apiext`, legacy
+`api`, or `none` when the element has no definition.)
 
 ## Validate templates — your highest-value habit
 
@@ -251,6 +278,47 @@ uniquely greppable marker
 `contains=MYDEBUG`, then remove the marker. This replaces asking the human to paste
 the console. Buffer is the last ~2000 lines, captured after logging init (so early
 boot output isn't there).
+
+## Run code inside the running app (`eval`)
+
+The app serves an `eval` endpoint in dev mode that evaluates a Java snippet **inside its
+own JVM**, against its real live classes, statics and data — a REPL in the running
+process, not a separate `jshell`. Same URL shapes as `log`:
+
+```bash
+# WebObjects/Wonder:
+curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/eval?snippet=1%2B1'
+# ng-objects:
+curl -s 'http://localhost:1200/ng/dev/eval?snippet=1%2B1'
+# a real question — POST the snippet as the body when it's long:
+curl -s --data 'MyModel.newContext().performQuery(...).size()' 'http://localhost:1200/.../eval'
+```
+
+Response is JSON: `{"status":"ok","value":"…","diagnostics":[]}`, or `status:"error"` with
+an `exception` or compiler `diagnostics`. The session is **persistent** — `var ctx = …`
+in one call, use `ctx` in the next; `reset=true` starts fresh. Printed output
+(`System.out`) goes to the app's console, so read it back via the `log` endpoint. This is
+how you verify logic against the app's *own* objects and a live data context instead of
+reconstructing them — e.g. check what a keypath actually returns, or what a query yields.
+
+Restricted to loopback clients (it's arbitrary code execution) and dev mode only. A
+snippet that loops forever hangs its request — if you wedge it, the app needs a restart.
+
+## Read the runtime binding errors (`problems`)
+
+When a template binding fails at runtime, the app renders an inline error box into the
+page (the 🐶/🌿 boxes). Instead of scraping rendered HTML for them, read them as data:
+
+```bash
+curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/problems?tail=20'   # WebObjects/Wonder
+curl -s 'http://localhost:1200/ng/dev/problems?contains=WORepetition'           # ng-objects
+```
+
+JSON: `{"problems":[{"time","kind","element","message"}],"count"}`. `contains=`/`tail=`
+filter like `log`; `clear=true` empties the buffer — snapshot-then-clear to mark a clean
+baseline, exercise the app, then read back only the errors that exercise produced. This is
+the app-side complement to `/validate` (which catches template mistakes statically, in the
+editor): `problems` catches the ones that only surface when a real request renders the tag.
 
 ## A full iteration
 
