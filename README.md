@@ -3,8 +3,9 @@
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) skill that teaches an
 agent to close the edit→build→run loop in **WebObjects / ng-objects / Wonder**
 projects by driving the [Parslips](https://undur.github.io/parslips/repository/)
-Eclipse plugin's dev server and the running app's log endpoint. (Parslips is the
-Eclipse plugin; Parsley is the template language it edits.)
+Eclipse plugin's dev server and the running app's own dev endpoints (log, eval,
+runtime problems). (Parslips is the Eclipse plugin; Parsley is the template language
+it edits.)
 
 With it, an agent editing files on disk can:
 
@@ -27,6 +28,15 @@ With it, an agent editing files on disk can:
   (`…/App.woa/log`) instead of asking you to paste either
 - **Check the Problems view** (`/problems`) and **hunt forgotten breakpoints**
   (`/breakpoints`, with a Skip All toggle)
+- **Look up an element's real API** — bindings with their types and pull/push
+  direction, required flags, and cross-binding constraints with generated messages
+  (`/elementApi`) — instead of reading the element's Java source to work it out
+- **Run code inside the running app** — a Java REPL in the live JVM, against the
+  app's own objects and data (a real Cayenne context, the running singleton), not a
+  separate jshell (`…/App.woa/eval`)
+- **Read the runtime binding errors** the app rendered into its pages — the inline
+  error boxes as JSON, instead of scraping them out of rendered HTML
+  (`…/App.woa/problems`)
 - Know **what hot-swaps vs. what needs an app restart** — and the timing traps
   (build-settled is not swap-landed)
 
@@ -74,8 +84,11 @@ or wonder-slim/ERExtensions.
   (`https://undur.github.io/parslips/repository/`)
 - The app launched from Eclipse in **debug mode** (JBR + HotswapAgent recommended
   for broad hot reload)
-- The `/log` endpoint needs the app runtime to provide it (wonder-slim ERExtensions
-  on Wonder)
+- The app-runtime endpoints (`log`, `eval`, `problems`) are served by the framework
+  in dev mode — recent wonder-slim/ERExtensions or ng-objects. `eval` runs code in
+  the live JVM and is restricted to loopback clients. An older framework build serves
+  a smaller set (or just `log`); the editor-side endpoints (`/validate`,
+  `/elementApi`, …) come from the Parslips plugin and are independent of it.
 
 Full details — every endpoint, parameters, runtime differences, and setup — are in
 [`parslips-dev-loop/references/endpoints.md`](parslips-dev-loop/references/endpoints.md).
