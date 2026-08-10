@@ -107,9 +107,10 @@ curl -s 'http://localhost:9485/elementApi?element=WOString,WOTextField&project=M
 Each element comes back as JSON: `bindings` (with `pull`/`push` types, a `direction` of
 `pull`/`push`/`both`/`none`, `required`, `default`, `deprecated`), `constraints` (with
 their generated human `message`, e.g. *"exactly one of 'checked' or 'value' must be
-bound"*), and the `content`/`unknownAttributes` policies. Names resolve exactly as a
-template resolves them — through the project's tag aliases (`str` → `WOString` →
-`ERXWOString`) — and the `resolved` field tells you what the name actually became. Add
+bound"*), and the `content`/`unknownAttributes` policies. Names resolve the way a template
+resolves them — through the project's tag aliases (`str` → `WOString` → `ERXWOString`)
+**and** the classic tag shortcuts (`link`, `textfield`, `string`) — so you can type the tag
+you see in a template. The `resolved` field tells you what the name actually became. Add
 `raw=true` to get the canonical `.apiext` XML instead of the interpreted view.
 
 This is the editor's hover, as data — the authoritative answer to "what can I bind on

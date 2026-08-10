@@ -246,8 +246,10 @@ curl -s 'http://localhost:9485/elementApi?element=WOString&raw=true'            
 
 - `element` is required — one name or a comma-separated list. `project`/`app` is an
   optional hint; without it, the first open project where the element resolves wins.
-- Names resolve through the project's tag aliases exactly as templates do
-  (`str` → `WOString` → `ERXWOString`); `resolved` reports what the name became.
+- Names resolve the way a template resolves them — through the project's tag aliases
+  (`str` → `WOString` → `ERXWOString`) AND the classic tag shortcuts (`link` →
+  `WOHyperlink`, `textfield` → `WOTextField`), so the tag you see in a template resolves.
+  `resolved` reports what the name became; `kind:none` means it's genuinely undefined.
 - Per binding: `pull`/`push` are arrays of `{type, interpretation?}` (interpretation is
   e.g. `"truthy"`); `direction` is the derived `pull`/`push`/`both`/`none`; plus
   `required`, `default`, `defaults`, `deprecated`.
@@ -337,7 +339,8 @@ curl -s '.../eval?reset=true&snippet=…'                           # discard th
 { "status":"error", "value":null, "diagnostics":["cannot find symbol …"] }
 ```
 
-- The snippet comes from the `snippet` param, or the raw request body when that's absent.
+- The snippet comes from the `snippet` param, or the request body when that's absent —
+  `curl --data 'CODE'` works as-is (no `Content-Type` header needed).
 - **Persistent session**: `var ctx = …` in one call, use `ctx` in the next. `reset=true`
   wipes it. Default imports: `java.util.*`, `java.util.stream.*`, `java.time.*`.
 - `System.out`/`err` from a snippet go to the app console — read them via the log endpoint.
