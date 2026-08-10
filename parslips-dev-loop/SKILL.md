@@ -291,8 +291,10 @@ process, not a separate `jshell`. Same URL shapes as `log`:
 curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/eval?snippet=1%2B1'
 # ng-objects:
 curl -s 'http://localhost:1200/ng/dev/eval?snippet=1%2B1'
-# a real question — POST the snippet as the body when it's long:
-curl -s --data 'MyModel.newContext().performQuery(...).size()' 'http://localhost:1200/.../eval'
+# a real question — POST the snippet as the body when it's long. Send it as text/plain:
+# most real Java contains = and &, which a form-encoded body (curl's --data default) gets
+# shredded on. text/plain is the reliable idiom.
+curl -s --data 'MyModel.newContext().performQuery(q).size()' -H 'Content-Type: text/plain' 'http://localhost:1200/.../eval'
 ```
 
 Response is JSON: `{"status":"ok","value":"…","diagnostics":[]}`, or `status:"error"` with

@@ -329,7 +329,7 @@ http://localhost:<PORT>/ng/dev/eval                          # ng-objects
 
 ```bash
 curl -s '.../eval?snippet=1%2B1'                                   # snippet as a query param
-curl -s --data 'MyModel.newContext().performQuery(q).size()' '.../eval'   # or POST the body
+curl -s --data 'MyModel.newContext().performQuery(q).size()' -H 'Content-Type: text/plain' '.../eval'   # POST the body as text/plain
 curl -s '.../eval?reset=true&snippet=…'                           # discard the persistent session first
 ```
 
@@ -339,8 +339,11 @@ curl -s '.../eval?reset=true&snippet=…'                           # discard th
 { "status":"error", "value":null, "diagnostics":["cannot find symbol …"] }
 ```
 
-- The snippet comes from the `snippet` param, or the request body when that's absent —
-  `curl --data 'CODE'` works as-is (no `Content-Type` header needed).
+- The snippet comes from the `snippet` param, or the request body **sent as
+  `text/plain`**. A form-encoded body (curl's `--data` default) gets split on `=` and
+  `&` — which mangles most real Java — so pass `-H 'Content-Type: text/plain'` when
+  POSTing the body. (On ng, an accidental form-encoded body returns a clear error
+  telling you this; on WO the raw body survives, but text/plain is the portable idiom.)
 - **Persistent session**: `var ctx = …` in one call, use `ctx` in the next. `reset=true`
   wipes it. Default imports: `java.util.*`, `java.util.stream.*`, `java.time.*`.
 - `System.out`/`err` from a snippet go to the app console — read them via the log endpoint.
