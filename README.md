@@ -22,7 +22,8 @@ With it, an agent editing files on disk can:
   or provably died
 - **Go from a fully closed workspace to a running app in one call** —
   `launch?open=true` opens the project *and its workspace dependencies*
-  (pom-resolved, transitive), clean-builds them, launches and waits
+  (pom-resolved, transitive), clean-builds them, launches and waits (or `/openProject`
+  to open a project + its dependencies without launching)
 - **Read startup failures post-mortem** (`/console` — the Eclipse console over
   HTTP, kept after the process dies) and **read the running app's log**
   (`…/App.woa/log`) instead of asking you to paste either

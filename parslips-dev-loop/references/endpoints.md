@@ -32,6 +32,8 @@ The hooks work the same for both runtimes; two things differ:
   app runtime, not this plugin, and the URL form differs by runtime: on WebObjects/Wonder
   (wonder-slim's ERExtensions) it's `…/<App>.woa/<name>`; on ng-objects it's
   `…/ng/dev/<name>`. Same parameters and JSON shapes on both — only the mount path differs.
+  **You don't have to guess which:** `/apps` (and `/status`) report each app's `runtime`
+  (`ng`/`wo`), so read it from there and build the right form.
 
 ## Dev server
 
@@ -43,7 +45,7 @@ Eclipse prefs.
 | Endpoint | Params | Does |
 |---|---|---|
 | `/` (or `/help`) | | Self-describing JSON index of every endpoint. Unknown paths answer with it too. |
-| `/status` | `app?` | Ground truth per launch config: running/mode/uptime, project open state, compile errors, registered port/pid + reachability. |
+| `/status` | `app?` | Ground truth per launch config: running/mode/uptime, project open state, compile errors, registered port/pid/runtime + reachability. |
 | `/refreshProject` | `project?`, `build?`, `clean?` | Refresh project(s) from disk + incremental build. Returns `ok` on a clean build, a JSON `buildErrors` report otherwise. Use after editing. |
 | `/problems` | `project?`, `severity?`, `limit?` | Problem markers (the Problems view) as JSON; errors only by default. |
 | `/validate` | `component`, `project?` | Validate a component's template, return problems as JSON. |
@@ -58,7 +60,7 @@ Eclipse prefs.
 | `/openProject` | `project` (or `all`), `related?` | Open a closed project **plus its workspace dependencies** (transitive, pom-resolved). `related=false` for just the one. |
 | `/openComponent` | `app?`, `component`, `lineNumber?`, `offset?`, `length?` | Open a component, reveal a position. |
 | `/openJavaFile` | `className`, `lineNumber`, `app?` | Open a Java file at a line. |
-| `/registerApp` | `name`, `port`, `pid?` | (App-side, automatic) An app announces its port at startup. You won't call this. |
+| `/registerApp` | `name`, `port`, `pid?`, `runtime?` | (App-side, automatic) An app announces its port (and framework, `ng`/`wo`) at startup. You won't call this. |
 
 (Older plugin builds lack `/`, `/status`, `/problems`, `/console`, `/restart`,
 `/breakpoints` and the `/launch` preflight/wait parameters — probe `/` first; a plain
@@ -142,7 +144,7 @@ Each app entry looks like:
 
 ```json
 {
-  "name":"MyApp","port":1200,"running":true,"lastSeen":1780611151951,"pid":"24067",
+  "name":"MyApp","port":1200,"running":true,"runtime":"ng","lastSeen":1780611151951,"pid":"24067",
   "dependencies":[
     {"name":"ERExtensions","path":"/Users/you/git/wonder-slim/ERExtensions",
      "sourceFolders":["/Users/you/git/wonder-slim/ERExtensions/src/main/java", …]},
@@ -151,13 +153,16 @@ Each app entry looks like:
 }
 ```
 
-Two things you get from this:
+Three things you get from this:
 
-- **Port** — build the log URL yourself: `…:<port>/cgi-bin/WebObjects/<name>.woa/log`
-  (WO) or `…:<port>/ng/dev/log` (ng). `running` is a live reachability check done when you
-  call `/apps` (a TCP probe of the port), so the list only shows apps that are actually up —
-  dead entries are dropped, since apps don't deregister on shutdown. `lastSeen` (epoch-millis
-  of the last startup announcement) is just a recency hint alongside it.
+- **`runtime`** — `"ng"` or `"wo"`, the app's framework, so you build the right runtime endpoint
+  URL form directly: `"ng"` → `…:<port>/ng/dev/<name>`, `"wo"` → `…:<port>/cgi-bin/WebObjects/<name>.woa/<name>`.
+  No probing or inferring it from the dependency list. (Absent for apps running an older build
+  that doesn't announce it — fall back to inference then.)
+- **Port** — combined with `runtime`, that's the whole log/eval/problems URL. `running` is a
+  live reachability check done when you call `/apps` (a TCP probe of the port), so the list
+  only shows apps that are actually up — dead entries are dropped, since apps don't deregister
+  on shutdown. `lastSeen` (epoch-millis of the last startup announcement) is a recency hint.
 - **`dependencies`** — the app's dependencies whose **source is open in the workspace**:
   their project name, on-disk path, and source folders. These are the libraries you can
   actually read and edit (e.g. to understand a framework's behavior, or fix a bug across

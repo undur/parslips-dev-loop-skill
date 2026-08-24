@@ -48,7 +48,7 @@ why the page looks unchanged.
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
 | Edited **any** project file | `GET /refreshProject` — no exceptions; assume nothing changed until you do |
 | Want to know what's running | `GET /status` (or `?app=NAME`) — running/mode/uptime, project open state, compile errors, registered port |
-| Need the app's port, or which deps you can read | `GET /apps` — running apps + their source-available dependencies |
+| Need the app's port, framework, or which deps you can read | `GET /apps` — running apps + their `runtime` (`ng`/`wo`, so you build the right endpoint URL), port, and source-available dependencies |
 | Need to start an app | `GET /launch?app=NAME&waitForPort=PORT` — blocks until it answers or provably failed |
 | Workspace cold (projects closed) | `GET /launch?config=NAME&open=true&waitForPort=PORT&timeout=300` — opens the project + its workspace dependencies, clean-builds, launches, waits |
 | Need to restart (classpath change, wedged reload) | `GET /restart?app=NAME&refresh=PROJ1,PROJ2&waitForPort=PORT` — the whole stop/refresh/launch/wait cycle in one call |
@@ -271,9 +271,10 @@ curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG
 curl -s 'http://localhost:1200/ng/dev/log?contains=MYDEBUG&tail=40'                         # ng-objects
 ```
 
-Discover the app's port and name yourself from the dev server's registry — apps
-announce themselves at startup, so `curl -s 'http://localhost:9485/apps'` returns
-each app's `name` and `port`; build the log URL from that. To diagnose: add a
+Discover the app's port, name and framework yourself from the dev server's registry —
+apps announce themselves at startup, so `curl -s 'http://localhost:9485/apps'` returns
+each app's `name`, `port`, and `runtime` (`ng`/`wo`); build the log URL from that (the
+`runtime` tells you which form — `…/ng/dev/log` vs `…woa/log` — so you don't guess). To diagnose: add a
 uniquely greppable marker
 (`log.info("MYDEBUG …")`), refresh/restart, exercise the app, read back with
 `contains=MYDEBUG`, then remove the marker. This replaces asking the human to paste
