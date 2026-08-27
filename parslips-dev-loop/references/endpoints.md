@@ -65,8 +65,10 @@ Eclipse prefs.
 | `/registerApp` | `name`, `port`, `pid?`, `runtime?` | (App-side, automatic) An app announces its port (and framework, `ng`/`wo`) at startup. You won't call this. |
 
 (Older plugin builds lack `/`, `/status`, `/problems`, `/console`, `/restart`,
-`/breakpoints` and the `/launch` preflight/wait parameters — probe `/` first; a plain
-`ok` response means you're on an old build and should use the classic subset.)
+`/breakpoints`, `/elementApi`, `/revalidate`, `/purgeMarkers` and the `/launch`
+preflight/wait parameters — probe `/` first: the returned index lists exactly what this
+build offers, and a plain `ok` response means you're on an old build and should use the
+classic subset.)
 
 ### `/launch` and `/stop` — start and stop apps
 
@@ -291,6 +293,44 @@ curl -s 'http://localhost:9485/problems?project=MyApp'  # the Problems view as J
 `/status` without `app` covers every launch config — the one-call answer to "what is
 this workspace running right now". `/problems` is the check to run when a refresh
 reported build errors, or before concluding that an edit "did nothing".
+
+`/problems` responses report `count` (the TRUE total at the requested severity) alongside
+the problem list, which is capped by `limit` (its actual size echoed as `shown`) — so
+never treat the list length as the count. Each problem carries a `source` telling you
+which tool family wrote the marker, so you can partition a noisy report without
+message-text guessing:
+
+- `parsley` — this plugin's template/binding validation (refreshed by `/validate` and `/revalidate`)
+- `java` — JDT compile/build-path (refreshed by builds)
+- `stock` — untyped legacy leftovers no living tool maintains (purgeable, see below)
+- `other` — anything else (WTP etc.)
+
+### `/revalidate` and `/purgeMarkers` — curing stale markers
+
+Template validation is per-file and event-driven: a Java clean/rebuild never re-runs it,
+so template markers can go stale (fixed problems still shown, or old-severity fossils).
+Two cures:
+
+```bash
+curl -s --max-time 120 'http://localhost:9485/revalidate?project=MyApp'   # one project
+curl -s --max-time 600 'http://localhost:9485/revalidate'                 # whole workspace — slow, be generous with the timeout
+curl -s 'http://localhost:9485/purgeMarkers'                              # delete orphaned stock markers (js/css/html/xml)
+```
+
+`/revalidate` re-runs template validation over every component and standalone template,
+replacing all Parsley markers with freshly computed ones — returns
+`{"projects":N,"components":M,"canceled":false}`. It's synchronous; a full workspace can
+take tens of seconds, so set a generous client timeout rather than concluding it hung.
+
+`/purgeMarkers` deletes markers of the EXACT stock problem type (never typed subtypes —
+Parsley, JDT and WTP markers are all typed and untouched) on js/css/html/htm/xml files:
+the permanent leavings of removed legacy validators, which nothing will ever revalidate.
+Returns `{"deleted":N,"files":M}`. Run it when `/problems` shows `"source":"stock"`
+entries; after a purge that count should be zero for good.
+
+When you suspect phantom problems: `/problems` first (read the `source` mix), then
+`/revalidate` for parsley markers, `/purgeMarkers` for stock ones. What survives both is
+real.
 
 ### `/breakpoints` — the forgotten-breakpoint check
 
