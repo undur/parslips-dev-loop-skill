@@ -59,6 +59,7 @@ why the page looks unchanged.
 | Need an element's real bindings/types/constraints | `GET /elementApi?element=NAME&project=NAME` — the editor's own resolved API as JSON; beats reading the element's Java source |
 | Want to run code inside the live app (inspect real objects/data) | `GET …/<App>.woa/eval` (WO) or `…/ng/dev/eval` (ng), `?snippet=…` — a REPL in the running JVM (loopback only) |
 | Need the runtime binding errors the app rendered | `GET …/<App>.woa/problems` (WO) or `…/ng/dev/problems` (ng) — the inline error boxes as JSON, no HTML-scraping |
+| Markers look stale/phantom (survive clean rebuilds) | `GET /revalidate` — revalidate every template in the workspace (or `?project=NAME`); `GET /purgeMarkers` for orphaned untyped markers on js/css files |
 | Aren't sure the dev server is up / what it offers | `GET /` — self-describing JSON index of all endpoints |
 
 (If `/status` or `/` return 404-ish "unknown" responses, the developer is running an

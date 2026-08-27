@@ -47,8 +47,10 @@ Eclipse prefs.
 | `/` (or `/help`) | | Self-describing JSON index of every endpoint. Unknown paths answer with it too. |
 | `/status` | `app?` | Ground truth per launch config: running/mode/uptime, project open state, compile errors, registered port/pid/runtime + reachability. |
 | `/refreshProject` | `project?`, `build?`, `clean?` | Refresh project(s) from disk + incremental build. Returns `ok` on a clean build, a JSON `buildErrors` report otherwise. Use after editing. |
-| `/problems` | `project?`, `severity?`, `limit?` | Problem markers (the Problems view) as JSON; errors only by default. |
+| `/problems` | `project?`, `severity?`, `limit?` | Problem markers as JSON; errors only by default. `count` is the true total (list capped by `limit`, size in `shown`); each entry carries a `source`: `parsley` (template validation), `java` (JDT), `stock` (purgeable legacy leftovers), `other`. |
 | `/validate` | `component`, `project?` | Validate a component's template, return problems as JSON. |
+| `/revalidate` | `project?` | Revalidate EVERY template in a project (or whole workspace) — the bulk cure for stale/phantom template markers (a Java clean/rebuild never refreshes them). Slow: use a generous timeout. |
+| `/purgeMarkers` | `project?` | Delete orphaned untyped (exact-stock-type) PROBLEM markers on js/css/html/xml — legacy-validator leftovers nothing will ever revalidate. Typed markers (template validation, JDT, WTP) untouched. |
 | `/elementApi` | `element` (name or comma-list), `project?`, `raw?` | The resolved binding API of one or more elements as JSON — bindings with pull/push types and direction, required/default/deprecation, constraints with generated messages, content/unknownAttributes policies. Alias-aware. `raw=true` returns the `.apiext` XML. |
 | `/refresh` | `path` | Refresh one resource path. |
 | `/apps` | `name?` | Discover running apps and their ports (so you don't have to be told the port). |
