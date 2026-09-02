@@ -54,7 +54,8 @@ Eclipse prefs.
 | `/elementApi` | `element` (name or comma-list), `project?`, `raw?` | The resolved binding API of one or more elements as JSON — bindings with pull/push types and direction, required/default/deprecation, constraints with generated messages, content/unknownAttributes policies. Alias-aware. `raw=true` returns the `.apiext` XML. |
 | `/refresh` | `path` | Refresh one resource path. |
 | `/apps` | `name?` | Discover running apps and their ports (so you don't have to be told the port). |
-| `/launch` | `config?`/`app?`, `mode?`, `open?`, `ignoreErrors?`, `allowMultiple?`, `waitForPort?`, `timeout?` | List launch configs, or start one — with preflight (closed project, compile errors, already running each refuse with a named override) and optional wait-until-ready. |
+| `/launch` | `config?`/`app?`, `mode?`, `open?`, `ignoreErrors?`, `allowMultiple?`, `waitForPort?`, `timeout?` | List launch configs, or start one — with preflight (closed project, compile errors in the project **or any project it depends on**, already running — each refuses with a named override) and optional wait-until-ready. Never raises Eclipse's launch dialogs. |
+| `/dialogs` | `press?`, `close?`, `title?` | Eclipse's open modal dialogs (title, message, buttons) — the stop-the-world prompts you can't see. `press=BUTTON` presses one; `close=true` closes the topmost; `title=TEXT` targets a specific one. |
 | `/stop` | `app`, `force?` | Stop a running app (terminate, or `force=true` to hard-kill). |
 | `/restart` | `app`, `refresh?` (+ `/launch` params) | stop → wait for termination → refresh+rebuild named projects → launch. Per-stage results. |
 | `/console` | `app`, `tail?` | The launch's console output (default last 100 lines) — kept after the process dies; the startup-failure post-mortem. |
@@ -65,8 +66,8 @@ Eclipse prefs.
 | `/registerApp` | `name`, `port`, `pid?`, `runtime?` | (App-side, automatic) An app announces its port (and framework, `ng`/`wo`) at startup. You won't call this. |
 
 (Older plugin builds lack `/`, `/status`, `/problems`, `/console`, `/restart`,
-`/breakpoints`, `/elementApi`, `/revalidate`, `/purgeMarkers` and the `/launch`
-preflight/wait parameters — probe `/` first: the returned index lists exactly what this
+`/breakpoints`, `/elementApi`, `/revalidate`, `/purgeMarkers`, `/dialogs` and the
+`/launch` preflight/wait parameters — probe `/` first: the returned index lists exactly what this
 build offers, and a plain `ok` response means you're on an old build and should use the
 classic subset.)
 
@@ -331,6 +332,33 @@ entries; after a purge that count should be zero for good.
 When you suspect phantom problems: `/problems` first (read the `source` mix), then
 `/revalidate` for parsley markers, `/purgeMarkers` for stock ones. What survives both is
 real.
+
+### `/dialogs` — the stop-the-world prompts you can't see
+
+Eclipse asks questions in modal dialogs: "Errors exist in required project(s) — proceed?",
+"Hot code replace failed", "Confirm perspective switch". A human sees and clicks; you
+see a request that hangs or a wait that times out, and the temptation is to start
+"fixing" something. **Before you fix anything after a hang or a timeout, check for a
+dialog:**
+
+```bash
+curl -s 'http://localhost:9485/dialogs'                     # {"uiResponsive":true,"dialogs":[{"title":…,"message":…,"buttons":["Proceed","Cancel"]}]}
+curl -s 'http://localhost:9485/dialogs?press=Proceed'       # press a button on the topmost dialog (case-insensitive, & mnemonics and "..." ignored)
+curl -s 'http://localhost:9485/dialogs?close=true'          # close the topmost dialog (the Escape / window-close path)
+curl -s 'http://localhost:9485/dialogs?press=OK&title=Hot'  # target the dialog whose title contains "Hot"
+```
+
+`/status` carries the same `dialogs` list, and a `/launch?waitForPort=…` wait returns at
+once with `"reason":"blocked by a modal dialog"` and the dialog itself if one appears
+after the launch. `uiResponsive:false` means the Eclipse UI thread didn't answer within
+3s — the workbench is wedged in something heavier than a dialog; tell the developer.
+
+Dev-server launches themselves never raise Eclipse's launch prompts: `/launch` makes every
+decision Eclipse would have asked about (compile errors in the app *or its dependencies*,
+save-before-launch, switch-to-debug) and reports it as data, then launches with Eclipse's
+prompting disabled. A launch refused for errors in a dependency carries a `hint` with the
+clean-rebuild call per broken project — stale build state is the usual cause; run the
+hint, then retry (or `ignoreErrors=true` if you know better).
 
 ### `/breakpoints` — the forgotten-breakpoint check
 

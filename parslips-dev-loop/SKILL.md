@@ -53,6 +53,8 @@ why the page looks unchanged.
 | Workspace cold (projects closed) | `GET /launch?config=NAME&open=true&waitForPort=PORT&timeout=300` — opens the project + its workspace dependencies, clean-builds, launches, waits |
 | Need to restart (classpath change, wedged reload) | `GET /restart?app=NAME&refresh=PROJ1,PROJ2&waitForPort=PORT` — the whole stop/refresh/launch/wait cycle in one call |
 | Launch/startup failed, or app died | `GET /console?app=NAME&tail=200` — the Eclipse console, readable even after the process died |
+| Launch refused for compile errors in a *dependency* | Run the refusal's `hint` (`/refreshProject?project=DEP&clean=true`), then retry — stale build state is the usual cause |
+| A call hangs, or a wait ends `blocked by a modal dialog` | `GET /dialogs` — Eclipse's modal dialogs (title, message, buttons); `?press=BUTTON` answers one. Check this before "fixing" anything |
 | Suspect compile errors | `GET /problems?project=NAME` — the Problems view as JSON |
 | App inexplicably slow/frozen only under Eclipse | `GET /breakpoints` — a forgotten breakpoint on a hot class; `?skipAll=true` disarms them all |
 | Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
