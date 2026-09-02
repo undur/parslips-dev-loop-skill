@@ -255,6 +255,29 @@ prefers a `local`/`dev` config and refuses to guess when it's ambiguous — if y
 something that might be Production. If a hot reload wedged the JVM and a clean stop
 won't take, `/stop?app=MyApp&force=true` hard-kills it.
 
+### When the JVM is wedged and Parslips can't reach it
+
+A hot swap occasionally leaves the JVM completely dead: the port is still held, but
+the app never answers, and it doesn't react to a clean `/stop`. `/stop?force=true`
+only works when the dev server has a **registered pid** for the config — an instance
+the human launched by hand from Eclipse, or one that outlived a dev-server restart,
+may not be registered (`/status` shows `"running": false` for the config even though
+`/apps` or the port says otherwise, and `/restart` reports `"stopped":false,
+"reason":"nothing was running"`, then launches a *second* instance next to the
+dead one). In that case find the pid through the port and `kill -9` it yourself —
+that is the only thing that gets through — then `/launch` normally:
+
+```bash
+lsof -nP -iTCP:1200 -sTCP:LISTEN            # the pid holding the app's port
+kill -9 <pid>
+curl -s 'http://localhost:9485/launch?app=MyApp&waitForPort=1200'
+```
+
+Note that a fresh ng-objects launch in development mode also tries to evict whatever
+holds its port ("Let's try murdering the bastard that's blocking us"), so `/launch`
+alone sometimes clears a half-dead instance — but a truly wedged JVM won't answer
+that eviction request either, and `kill -9` is what you fall back to.
+
 ## Startup failures: read the Eclipse console
 
 The app's own log endpoint only exists once the app is up — a launch that dies during
