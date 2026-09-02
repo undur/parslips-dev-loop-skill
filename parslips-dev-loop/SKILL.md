@@ -40,11 +40,22 @@ you've refreshed.** This is the one habit that makes the whole loop work; the mo
 common mistake is skipping the refresh for a "mere template edit" and then wondering
 why the page looks unchanged.
 
+**Why templates and static resources need it too (it isn't compilation):** the running
+app reads templates, `.wod` files and webserver resources (`.css`, `.js`, images) from
+the **classpath**, and under Eclipse the classpath is the project's *output folder*
+(`target/classes`), not `src/main/resources`. Eclipse's builder copies resources from
+`src/main/resources` into the output folder — but only when Eclipse notices a change,
+which a disk edit never triggers. Until `/refreshProject` fires, the app keeps serving
+the old copy of the template or stylesheet. Nothing is cached or compiled; a copy step
+just never ran. (A framework-side fix — reading `src/main/resources` directly in
+development — is tracked as ngobjects/ng-objects#69; until it lands, refresh.)
+
 ## When to do what
 
 | You just… | Do this |
 |---|---|
 | Edited a template (`.html`/`.wod`) | `GET /refreshProject?project=NAME` (**always**), then `GET /validate?component=NAME` to catch errors |
+| Edited a webserver resource (`.css`/`.js`/image) | `GET /refreshProject?project=NAME` — same reason as templates: the app serves the output-folder copy |
 | Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
 | Edited **any** project file | `GET /refreshProject` — no exceptions; assume nothing changed until you do |
 | Want to know what's running | `GET /status` (or `?app=NAME`) — running/mode/uptime, project open state, compile errors, registered port |
