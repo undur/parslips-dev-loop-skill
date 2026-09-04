@@ -38,8 +38,13 @@ With it, an agent editing files on disk can:
 - **Read the runtime binding errors** the app rendered into its pages — the inline
   error boxes as JSON, instead of scraping them out of rendered HTML
   (`…/App.woa/problems`)
-- Know **what hot-swaps vs. what needs an app restart** — and the timing traps
-  (build-settled is not swap-landed)
+- **See and answer Eclipse's modal dialogs** (`/dialogs`) — the stop-the-world
+  prompts an agent otherwise can't see, and launches that never raise them
+- **Read (or watch) everything the agent asked the dev server to do** — `/activity`
+  as JSON for the next session, `/watch` as a live narrated page for you
+- Know **what hot-swaps vs. what needs an app restart** — the timing traps
+  (build-settled is not swap-landed) and how to recognise a swap that corrupted a
+  class (restart, don't debug)
 
 It exists because Eclipse doesn't notice edits made outside its own editor — so
 without these hooks, an agent's disk edits silently do nothing. The dev server is

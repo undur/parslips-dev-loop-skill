@@ -1,383 +1,189 @@
 ---
 name: parslips-skill
 description: >-
-  Use this skill after you edit any WebObjects, ng-objects, Wonder, or Parsley
-  file on disk to make the change take effect in the running app. Invoke
-  immediately after modifying .java, .html, or .wod files in WO/ng components —
-  Eclipse doesn't see disk edits made outside its editor, so the change won't take
-  effect until you trigger a refresh through this skill. Also use when: the
-  browser still shows old behavior after your edit; you want to validate a
-  template for errors without rendering it; you added debug logging and want to
-  read what printed; you need to check whether a Java change hot-swapped or
-  requires a restart; you need to know an app's port or which of its dependencies
-  have source open in the workspace; or changes "aren't reflecting" in the running
-  app. The skill
-  drives the Parslips Eclipse plugin's dev server (HTTP on localhost:9485) and the
-  running app's log endpoint to refresh, rebuild, validate templates, and fetch
-  console output — closing the edit→build→run loop without manual steps or asking
-  the human to paste the console. Triggers on projects with .wo component bundles,
-  <wo:...> or <webobject> template tags, build.properties with project.base,
-  WOComponent/NGComponent classes, or wonder-slim/ERExtensions.
+  Use this skill in WebObjects, ng-objects, Wonder or Parsley projects whenever the
+  running app has to see a change, or you need to see the running app. That means:
+  after editing any .java, .html or .wod file on disk (Eclipse doesn't notice disk
+  edits, so nothing takes effect until you refresh through this skill); when the
+  browser still shows old behavior after your edit; to validate a template for errors
+  without rendering it; to start, stop or restart the app; to find out what is running
+  and on which port; to read what the app logged, or what it printed while starting;
+  to check whether a Java change hot-swapped or needs a restart; to look up an
+  element's real bindings ("what can I bind on WOPopUpButton?"); to run a Java snippet
+  inside the live app; or to learn which dependencies have source open in the
+  workspace. It drives the Parslips Eclipse plugin's dev server (HTTP on
+  localhost:9485) and the app's own dev endpoints (log, eval, problems). Triggers on
+  projects with .wo component bundles, <wo:...> or <webobject> template tags,
+  build.properties with project.base, WOComponent/NGComponent classes, or
+  wonder-slim/ERExtensions.
 ---
 
-# Parslips Dev Loop
+# Parslips
 
-You're editing a WebObjects / ng-objects project whose developer runs Eclipse with
-the **Parslips** plugin (which edits the Parsley template language). Parslips
-exposes HTTP hooks that let you — an agent editing files on disk — make changes
-take effect, validate templates, and read the app's console, without the human
-relaying anything by hand.
+You're editing a WebObjects / ng-objects project whose developer runs Eclipse with the
+**Parslips** plugin (the editor for the Parsley template language). Parslips exposes HTTP
+hooks that let you — an agent editing files on disk — make changes take effect, validate
+templates, launch and observe the app, and read its output, without the human relaying
+anything by hand.
 
-## The core problem
+## The one rule
 
-When you edit **any file in the project** on disk — Java source, templates (`.html`/`.wod`), anything — Eclipse doesn't notice, because it only tracks edits made through
-its own editor. So your change sits there and the running app keeps using the old
-state. From the outside your edit appears to do nothing.
+Eclipse only tracks edits made through its own editor. A file you change on disk sits
+unnoticed: no recompile, no resource copy, and the running app keeps its old state. From
+the outside your edit appears to do nothing.
 
-**So the rule is simple and absolute: after editing ANY project file, run
-`/refreshProject`. Always — templates and Java alike. Assume nothing changes until
-you've refreshed.** This is the one habit that makes the whole loop work; the most
-common mistake is skipping the refresh for a "mere template edit" and then wondering
-why the page looks unchanged.
-
-**Why templates and static resources need it too (it isn't compilation):** the running
-app reads templates, `.wod` files and webserver resources (`.css`, `.js`, images) from
-the **classpath**, and under Eclipse the classpath is the project's *output folder*
-(`target/classes`), not `src/main/resources`. Eclipse's builder copies resources from
-`src/main/resources` into the output folder — but only when Eclipse notices a change,
-which a disk edit never triggers. Until `/refreshProject` fires, the app keeps serving
-the old copy of the template or stylesheet. Nothing is cached or compiled; a copy step
-just never ran. (A framework-side fix — reading `src/main/resources` directly in
-development — is tracked as ngobjects/ng-objects#69; until it lands, refresh.)
+**After editing ANY project file, run `/refreshProject`. Templates, `.wod` files and
+static resources too, not just Java.** Templates and resources aren't compiled, but the
+app reads them from the output folder (`target/classes`), which Eclipse only refreshes
+when it notices a change — and a disk edit is never noticed until you refresh. Assume
+nothing has changed until you have.
 
 ## When to do what
 
 | You just… | Do this |
 |---|---|
-| Edited a template (`.html`/`.wod`) | `GET /refreshProject?project=NAME` (**always**), then `GET /validate?component=NAME` to catch errors |
-| Edited a webserver resource (`.css`/`.js`/image) | `GET /refreshProject?project=NAME` — same reason as templates: the app serves the output-folder copy |
-| Edited a Java class | `GET /refreshProject?project=NAME` — refresh + incremental build (reloads live; see below) |
-| Edited **any** project file | `GET /refreshProject` — no exceptions; assume nothing changed until you do |
-| Want to know what's running | `GET /status` (or `?app=NAME`) — running/mode/uptime, project open state, compile errors, registered port |
-| Need the app's port, framework, or which deps you can read | `GET /apps` — running apps + their `runtime` (`ng`/`wo`, so you build the right endpoint URL), port, and source-available dependencies |
-| Need to start an app | `GET /launch?app=NAME&waitForPort=PORT` — blocks until it answers or provably failed |
+| Edited **anything** in the project | `GET /refreshProject?project=NAME` — always, first. Check the response (below). |
+| Edited a template (`.html`/`.wod`) | …then `GET /validate?component=NAME` — refresh makes it take effect, validate catches mistakes; they're separate |
+| Want to know what's running | `GET /status?app=NAME` — one entry **per launch config** of the project; read the one with `running:true` |
+| Need the app's port, framework, or readable dependencies | `GET /apps?name=NAME` — port, `runtime` (`ng`/`wo`, picks the endpoint URL form), and the dependencies whose source is open in the workspace |
+| Need to start the app | `GET /launch?app=NAME&waitForPort=PORT` — blocks until it answers or provably failed |
 | Workspace cold (projects closed) | `GET /launch?config=NAME&open=true&waitForPort=PORT&timeout=300` — opens the project + its workspace dependencies, clean-builds, launches, waits |
-| Need to restart (classpath change, wedged reload) | `GET /restart?app=NAME&refresh=PROJ1,PROJ2&waitForPort=PORT` — the whole stop/refresh/launch/wait cycle in one call |
-| Launch/startup failed, or app died | `GET /console?app=NAME&tail=200` — the Eclipse console, readable even after the process died |
+| Need a restart (classpath change, broken swap, wedged reload) | `GET /restart?app=NAME&refresh=PROJ1,PROJ2&waitForPort=PORT` — stop, rebuild, launch, wait, in one call |
 | Launch refused for compile errors in a *dependency* | Run the refusal's `hint` (`/refreshProject?project=DEP&clean=true`), then retry — stale build state is the usual cause |
-| A call hangs, or a wait ends `blocked by a modal dialog` | `GET /dialogs` — Eclipse's modal dialogs (title, message, buttons); `?press=BUTTON` answers one. Check this before "fixing" anything |
-| Suspect compile errors | `GET /problems?project=NAME` — the Problems view as JSON |
-| App inexplicably slow/frozen only under Eclipse | `GET /breakpoints` — a forgotten breakpoint on a hot class; `?skipAll=true` disarms them all |
-| Need to see what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` (port from `/apps`) |
-| Need an element's real bindings/types/constraints | `GET /elementApi?element=NAME&project=NAME` — the editor's own resolved API as JSON; beats reading the element's Java source |
-| Want to run code inside the live app (inspect real objects/data) | `GET …/<App>.woa/eval` (WO) or `…/ng/dev/eval` (ng), `?snippet=…` — a REPL in the running JVM (loopback only) |
-| Need the runtime binding errors the app rendered | `GET …/<App>.woa/problems` (WO) or `…/ng/dev/problems` (ng) — the inline error boxes as JSON, no HTML-scraping |
-| Markers look stale/phantom (survive clean rebuilds) | `GET /revalidate` — revalidate every template in the workspace (or `?project=NAME`); `GET /purgeMarkers` for orphaned untyped markers on js/css files |
-| Aren't sure the dev server is up / what it offers | `GET /` — self-describing JSON index of all endpoints |
+| Launch/startup failed, app died, or app answers 500 to everything | `GET /console?app=NAME&tail=200` — the Eclipse console, kept after the process dies |
+| A call hangs, or a wait ends `blocked by a modal dialog` | `GET /dialogs` — Eclipse's modal dialogs (title, message, buttons); `?press=BUTTON` answers one. **Check this before "fixing" anything** |
+| Suspect compile errors | `GET /problems?project=NAME` — the Problems view as JSON (`count` is the true total; entries carry a `source`) |
+| App slow/frozen only under Eclipse | `GET /breakpoints` — a forgotten breakpoint; `?skipAll=true` disarms them all |
+| Need what the app logged | `GET …/<App>.woa/log` (WO) or `…/ng/dev/log` (ng), `?contains=…&tail=…` — port and runtime from `/apps` |
+| Need an element's real bindings | `GET /elementApi?element=NAME&project=NAME` — the editor's resolved API as JSON; don't reverse-engineer the Java |
+| Want to run code in the live JVM | `GET …/<App>.woa/eval` (WO) or `…/ng/dev/eval` (ng), `?snippet=…` — a REPL inside the running app |
+| Need the binding errors the app rendered | `GET …/<App>.woa/problems` (WO) or `…/ng/dev/problems` (ng) — the inline error boxes as JSON |
+| Markers look stale (survive rebuilds) | `GET /revalidate?project=NAME` re-validates every template; `GET /purgeMarkers` removes orphaned legacy markers |
+| Picking up after another session | `GET /activity` — every request the dev server handled, with responses; the human can watch live at `/watch` |
+| Unsure what this build offers | `GET /` — the self-describing index; trust it over this document when they disagree |
 
-(If `/status` or `/` return 404-ish "unknown" responses, the developer is running an
-older plugin build without these endpoints — fall back to `/refreshProject` as the
-probe, `/launch`+port-polling for starts, and the app's own log endpoint for output.)
-
-## Always probe first
-
-Before relying on the loop, confirm the dev server answers:
+## Probe first
 
 ```bash
 curl -s http://localhost:9485/
 ```
 
-A JSON endpoint index → you're good (and the index tells you exactly what this plugin
-build offers — trust it over this document when they disagree). Plain `ok` → an older
-plugin build without the index; the core endpoints (`/refreshProject`, `/validate`,
-`/launch`, `/stop`, `/apps`) still work. Connection refused → **stop and tell the
-human** Eclipse isn't running or the plugin isn't loaded (don't keep retrying or work
-blind). The dev server is loopback-only with no auth, so all calls are plain local
-`curl`.
+A JSON index → you're good. Connection refused → **stop and tell the human**: Eclipse
+isn't running or the plugin isn't loaded; don't retry blindly. (A plain `ok` means an
+old plugin build with only the classic endpoints — `/refreshProject`, `/validate`,
+`/launch`, `/stop`, `/apps`.) The dev server is loopback-only with no auth.
 
-## Know your source reach
+## Traps — the lessons that cost time
 
-`GET /apps?name=APP` returns, besides the port, a `dependencies` array — the app's
-dependencies whose **source is open in the workspace**, each with its on-disk `path`
-and `sourceFolders`. These are the libraries you can actually read and edit; jar-only
-dependencies are omitted. So when a question crosses into a framework or dependency
-(why does `ERExtensions` do X, is the bug in `helium5` or here), check `/apps` first:
-if it's listed, read its real source at the given path instead of guessing from
-behavior — and you can fix bugs across that boundary, not just in the app. If it's not
-listed, you don't have its source in this workspace; say so rather than inventing it.
+**Check the refresh response.** Plain `ok` means the build settled clean. A JSON body
+with `buildErrors` means your edit did **not** compile: the app still runs the previous
+classes, and exercising it now tests nothing. Fix the listed problems first.
 
-## Look up an element's API instead of reading its source
+**The build settling is not the swap landing.** `ok` means the `.class` files exist; the
+JVM redefines the classes a beat later. Wait ~2–3s after a refresh before exercising a
+Java change, and re-exercise once before concluding a swap failed. (Templates don't race
+— they're read per render.)
 
-When you need to know an element's real bindings — their types, which way they flow
-(pull/push), what's required, the cross-binding constraints — don't read the element's
-Java to reverse-engineer it. Ask the editor, which already knows:
+**Recognise a broken hot swap — then restart, don't debug.** This stack (JBR + DCEVM +
+HotswapAgent) reloads structural changes live, so restarts are rare. But a swap can
+corrupt a class: lambdas get renumbered, an observer or callback registered against the
+old numbering breaks, and the app starts failing on *every* request. The signature is a
+`NoSuchMethodError`, `NoSuchFieldError` or `AbstractMethodError` in the console —
+especially one naming a `lambda$N` method — after a refresh, on code that is fine. The
+app's own log endpoint is dead at that point too, so `/console` is your only source.
+`/restart` cures it. Don't spend a minute "fixing" the code.
 
-```bash
-curl -s 'http://localhost:9485/elementApi?element=WOPopUpButton&project=MyApp'
-# multiple at once:
-curl -s 'http://localhost:9485/elementApi?element=WOString,WOTextField&project=MyApp'
-```
+**Never `clean=true` while the app is running.** A clean+full rebuild produces no per-class
+delta for the swapper, so the running app stops picking up changes until restarted. Clean
+belongs to build recovery and to freshly opened projects (where `/openProject` and
+`/launch?open=true` do it for you, safely, because nothing is running yet).
 
-Each element comes back as JSON: `bindings` (with `pull`/`push` types, a `direction` of
-`pull`/`push`/`both`/`none`, `required`, `default`, `deprecated`), `constraints` (with
-their generated human `message`, e.g. *"exactly one of 'checked' or 'value' must be
-bound"*), and the `content`/`unknownAttributes` policies. Names resolve the way a template
-resolves them — through the project's tag aliases (`str` → `WOString` → `ERXWOString`)
-**and** the classic tag shortcuts (`link`, `textfield`, `string`) — so you can type the tag
-you see in a template. The `resolved` field tells you what the name actually became. Add
-`raw=true` to get the canonical `.apiext` XML instead of the interpreted view.
+**Never verify or "fix" the loop with Maven.** Eclipse resolves inter-project dependencies
+inside the workspace; the local Maven repository plays no part. A `mvn compile` failing
+against a stale installed jar is a false alarm — `/problems` is the truth, and `mvn
+install` only wastes time and hides that nothing was broken.
 
-This is the editor's hover, as data — the authoritative answer to "what can I bind on
-this tag", without opening a file. (`kind` tells you where it came from: `apiext`, legacy
-`api`, or `none` when the element has no definition.)
+**A hang or a timeout is usually a dialog.** Eclipse's modal prompts are invisible to you.
+Before diagnosing anything after a request hangs or a wait times out, `GET /dialogs` — and
+answer it with `?press=BUTTON`. Dev-server launches never raise Eclipse's own launch
+prompts (compile errors, save, switch-to-debug are all decided and reported as data), but
+hot-code-replace failures and other tooling still can.
+
+**`reachable` is a port probe, not health.** `/status` and `/apps` report `running` and
+`reachable` from a TCP connect. An app whose every request returns 500 (see the broken
+swap above) is "reachable". To confirm health, fetch a page or the app's log endpoint.
+
+**`/status?app=NAME` returns every launch config of the project** — one-off main classes
+and a Production config included, all sharing the same registered block. Read the entry
+whose `running` is true; don't take the first one.
+
+**`found:false` from `/validate` tells you why.** Its `reason` distinguishes a closed
+project (open it: `/openProject?project=NAME`, or check `projectOpen` in `/status`), an
+unknown project name, and a component nobody has. Each needs a different fix.
+
+**Know your source reach; never invent framework internals.** When a question crosses
+into a framework or dependency (why does `ERExtensions` do X, is the bug in `helium5` or
+here), check `/apps?name=APP` first: its `dependencies` are the ones whose source is open
+in the workspace, with their on-disk `path`. If it's listed, read the real source there
+and fix bugs across that boundary. If it isn't, you don't have its source — say so
+plainly rather than guessing at its behavior.
+
+**Don't launch Production.** `/launch` prefers a `local`/`dev` config and refuses to guess
+when ambiguous — `{"launched":false,"candidates":[…]}`. Pick an exact name from the list.
+
+**A JVM the dev server can't reach.** A swap occasionally leaves the JVM holding its port
+but answering nothing, and not reacting to a clean `/stop`. `/stop?force=true` needs a
+registered pid; when there is none (`/status` says `running:false` while the port is
+held), `lsof -nP -iTCP:PORT -sTCP:LISTEN`, `kill -9` the pid, then `/launch`. (A fresh
+ng-objects launch in development mode first tries to evict whatever holds its port, so
+`/launch` alone sometimes clears a half-dead instance — but a truly wedged JVM ignores
+that too, and `kill -9` is the fallback.)
 
 ## Validate templates — your highest-value habit
 
-Templates are long strings with weak type/definition discovery, so mistakes are
-easy and often stay hidden until the page renders. After editing a template,
-validate it:
+Templates are long strings with weak definition discovery; mistakes hide until render.
+After a template edit do **both**: `/refreshProject` (so the change takes effect) and
+`/validate?component=NAME` (to catch mistakes before rendering). `problems` empty →
+clean; each problem has `severity`, `line`, `charStart`/`charEnd`, `message`, `file`.
+`/refreshProject` does not validate, and `/validate` does not make an edit take effect.
 
-```bash
-curl -s 'http://localhost:9485/validate?component=ASISearchPage'
-# add &project=MyApp when a name might be ambiguous across projects
-```
+## Ask what an element can do
 
-Returns JSON: `problems` empty → clean; each problem has `severity`, `line`
-(1-based), `charStart`/`charEnd`, `message`, `file`. `"found":false` → the name
-didn't resolve (check spelling/project). **`/refreshProject` does not validate
-templates** (validation is editor-driven) and `/validate` does not make your template
-edit take effect in the running app — they're separate. So after a template edit do
-**both**: `/refreshProject` (so the change takes effect) **and** `/validate` (to catch
-mistakes before rendering).
+Don't read an element's Java to work out its bindings. `/elementApi?element=NAME` returns
+them as data: each binding's `pull`/`push` types and `direction`, `required`, `default`,
+`deprecated`, plus cross-binding `constraints` with their plain-English `message`, and the
+`content`/`unknownAttributes` policies. Names resolve as a template resolves them
+(`str` → `WOString` → `ERXWOString`, classic shortcuts included); `resolved` says what the
+name became, `kind:none` means no definition exists. `raw=true` returns the `.apiext` XML.
 
-## Refresh + build after a Java edit
+## Two logs, two jobs
 
-```bash
-curl -s 'http://localhost:9485/refreshProject?project=MyApp'   # omit project → all open projects
-```
+- **`/console?app=NAME`** — the raw Eclipse console, captured by the plugin and kept after
+  the process dies. Startup failures, `waitForPort` reporting termination, and an app
+  broken by a bad swap live only here.
+- **The app's log endpoint** (`…/<App>.woa/log` or `…/ng/dev/log`, port and form from
+  `/apps`) — filterable with `contains=`, dies with the app. For debugging markers: add
+  `log.info("MYDEBUG …")`, refresh, exercise, read back `?contains=MYDEBUG`, remove.
 
-Keep the default **incremental** build — it produces the per-class delta hot-swap
-needs (same as an in-editor save). **Never pass `clean=true` while the app is
-running**: a clean+full rebuild doesn't produce that delta, so the running app
-stops picking up changes (restart to recover). Clean has exactly two homes: build
-recovery, and freshly opened projects — where `/openProject` and `/launch?open=true`
-already do it for you, safely, because nothing is running yet. The call blocks until
-the build settles, so on return the new classes exist.
+## Inside the app: `eval` and `problems`
 
-**Check the response.** Plain `ok` = the build settled clean. A JSON body with
-`buildErrors` = your edit did NOT compile — the app is still running the previous
-classes, and exercising it now tests nothing. Fix the listed problems (or
-`GET /problems?project=NAME` for the full list) before drawing any conclusions.
-
-**The build settling is not the swap landing.** `ok` means the .class files exist;
-the JVM's actual class redefinition follows a beat later. If you exercise the app
-in the same breath as the refresh, a Java change can appear "not to have taken".
-Wait ~2-3s after the refresh before exercising Java changes (template changes
-don't race — they're read per render); if a change still doesn't show, re-exercise
-once before concluding the swap failed.
-
-**Never verify or "fix" the loop with Maven.** Eclipse resolves inter-project
-dependencies **within the workspace** (open projects reference each other's source
-directly), so the local Maven repository plays no part in this dev cycle. A `mvn
-compile` that fails against a **stale installed jar** (e.g. a sibling project's
-artifact missing a newly added class) is a false alarm — Eclipse builds fine, and
-the answer is `GET /problems?project=NAME`, not `mvn install`. Installing artifacts
-to "fix" such an error wastes time and hides that the workspace was never broken.
-Maven is for release/CI builds, not the edit→run loop.
-
-### What reloads vs. what needs a restart
-
-First: **you must `/refreshProject` regardless** — reloading is what a refresh *does*,
-so nothing (Java or template) takes effect without it. The question here is only
-whether, after the refresh, the change reloads into the running app or additionally
-needs a restart.
-
-**This dev environment is the JetBrains Runtime (JBR) with DCEVM + HotswapAgent**
-(they run together as one stack). That combination reloads far more than a stock JVM:
-not just method bodies but **structural changes too** — new/removed methods and fields,
-changed signatures, new classes, constructor changes — all reload live on
-`/refreshProject`, no restart. Treat the default assumption as **"refresh, and it
-reloads; don't restart."**
-
-Only genuinely heavy changes need an app restart on top of the refresh:
-- **classpath changes** (new/updated dependency, changed `pom.xml`/build path)
-- **project-structure changes** (new source folder, module layout)
-- the occasional very complex reload the agent can't apply cleanly
-
-A stock JVM (plain debug mode, without DCEVM+HotswapAgent) is much more limited — method
-bodies only, restart for any shape/constructor change — but that is not this setup. Here,
-assume JBR+DCEVM+HotswapAgent and don't restart for ordinary edits. If a refresh genuinely
-doesn't take (rare), a restart is the fallback — not the default.
-
-## Start and stop apps
-
-Restarts are rarely needed — after the mandatory `/refreshProject`, JBR+DCEVM+HotswapAgent
-reloads both template and structural Java changes live. But when one genuinely is
-needed — a classpath or project-structure change, or the app isn't running yet — you
-can do it yourself rather than asking the human:
-
-```bash
-# one call for the whole cycle: stop, wait for termination, rebuild projects, launch, wait for ready
-curl -s 'http://localhost:9485/restart?app=MyApp&refresh=my-model,MyApp&waitForPort=1200'
-
-# or the pieces individually:
-curl -s 'http://localhost:9485/stop?app=MyApp'                          # clean terminate
-curl -s 'http://localhost:9485/launch?app=MyApp&waitForPort=1200'       # start (debug mode) and block until ready
-```
-
-With `waitForPort` the response only comes back once the app answers on that port
-(`"ready":true` + `startupMillis`), the process died (`"ready":false` with a pointer
-at `/console` — go read the startup failure there), or the timeout (default 60s)
-passed. **No more hand-rolled polling loops.**
-
-Don't know the port? It lives in the launch config's arguments, so you can't read it
-up front. Launch **without** `waitForPort`, then poll `/status?app=NAME` — the app
-registers its port with the dev server at startup, and `registered: {port, reachable}`
-appearing (reachable true) is your readiness signal. `/console` also shows it (WO apps
-print `WOPort=N` early in startup). Once known, use `waitForPort` from then on.
-
-`/launch` refuses — with a named reason and the parameter that overrides it — instead
-of pretending to succeed, when:
-- the **project is closed** in the workspace → pass `open=true`, which opens the
-  project **and its workspace dependencies** (transitively, pom-resolved — Maven
-  workspace resolution only sees open projects, so opening just one isn't enough)
-  and clean-builds them (freshly opened projects need a clean: their persisted
-  build state is stale and an incremental build no-ops); `/openProject?project=NAME`
-  (or `all`) does the same standalone. So a completely cold workspace to a running
-  app is ONE call: `/launch?config=NAME&open=true&waitForPort=PORT&timeout=300`.
-- the project has **compile errors** → fix them (see the listed problems) or `ignoreErrors=true`
-- a launch of the config is **already running** → use `/restart`, or `allowMultiple=true`
-
-`/launch` with no arg lists the configs. **Be careful which config you start:** a
-project often has several (e.g. `MyApp - Local`, `MyApp - Production`). The endpoint
-prefers a `local`/`dev` config and refuses to guess when it's ambiguous — if you get
-`{"launched":false,"candidates":[…]}`, pick an exact name; **don't** blindly launch
-something that might be Production. If a hot reload wedged the JVM and a clean stop
-won't take, `/stop?app=MyApp&force=true` hard-kills it.
-
-### When the JVM is wedged and Parslips can't reach it
-
-A hot swap occasionally leaves the JVM completely dead: the port is still held, but
-the app never answers, and it doesn't react to a clean `/stop`. `/stop?force=true`
-only works when the dev server has a **registered pid** for the config — an instance
-the human launched by hand from Eclipse, or one that outlived a dev-server restart,
-may not be registered (`/status` shows `"running": false` for the config even though
-`/apps` or the port says otherwise, and `/restart` reports `"stopped":false,
-"reason":"nothing was running"`, then launches a *second* instance next to the
-dead one). In that case find the pid through the port and `kill -9` it yourself —
-that is the only thing that gets through — then `/launch` normally:
-
-```bash
-lsof -nP -iTCP:1200 -sTCP:LISTEN            # the pid holding the app's port
-kill -9 <pid>
-curl -s 'http://localhost:9485/launch?app=MyApp&waitForPort=1200'
-```
-
-Note that a fresh ng-objects launch in development mode also tries to evict whatever
-holds its port ("Let's try murdering the bastard that's blocking us"), so `/launch`
-alone sometimes clears a half-dead instance — but a truly wedged JVM won't answer
-that eviction request either, and `kill -9` is what you fall back to.
-
-## Startup failures: read the Eclipse console
-
-The app's own log endpoint only exists once the app is up — a launch that dies during
-startup is invisible there. The plugin captures every launch's console, and keeps it
-after the process dies:
-
-```bash
-curl -s 'http://localhost:9485/console?app=MyApp&tail=200'
-```
-
-First line is a status header (`# config: … state: running|terminated exit: N`), the
-rest is the raw console tail — stack traces and all. This is the post-mortem for
-"launched":true-but-nothing-listening, and the place to look whenever `waitForPort`
-reports the process terminated.
-
-## Read the app's log
-
-(Not the same as `/console` above: the **log endpoint** lives in the running app,
-is filterable with `contains=`, and dies with the app; `/console` is the raw Eclipse
-console, unfiltered, and survives the app's death. Debugging markers → log endpoint;
-startup failures → `/console`.)
-
-The running app serves its recent log over HTTP in dev mode. The URL form depends on
-the runtime — same parameters on both:
-
-```bash
-curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'   # WebObjects/Wonder
-curl -s 'http://localhost:1200/ng/dev/log?contains=MYDEBUG&tail=40'                         # ng-objects
-```
-
-Discover the app's port, name and framework yourself from the dev server's registry —
-apps announce themselves at startup, so `curl -s 'http://localhost:9485/apps'` returns
-each app's `name`, `port`, and `runtime` (`ng`/`wo`); build the log URL from that (the
-`runtime` tells you which form — `…/ng/dev/log` vs `…woa/log` — so you don't guess). To diagnose: add a
-uniquely greppable marker
-(`log.info("MYDEBUG …")`), refresh/restart, exercise the app, read back with
-`contains=MYDEBUG`, then remove the marker. This replaces asking the human to paste
-the console. Buffer is the last ~2000 lines, captured after logging init (so early
-boot output isn't there).
-
-## Run code inside the running app (`eval`)
-
-The app serves an `eval` endpoint in dev mode that evaluates a Java snippet **inside its
-own JVM**, against its real live classes, statics and data — a REPL in the running
-process, not a separate `jshell`. Same URL shapes as `log`:
-
-```bash
-# WebObjects/Wonder:
-curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/eval?snippet=1%2B1'
-# ng-objects:
-curl -s 'http://localhost:1200/ng/dev/eval?snippet=1%2B1'
-# a real question — POST the snippet as the body when it's long. Send it as text/plain:
-# most real Java contains = and &, which a form-encoded body (curl's --data default) gets
-# shredded on. text/plain is the reliable idiom.
-curl -s --data 'MyModel.newContext().performQuery(q).size()' -H 'Content-Type: text/plain' 'http://localhost:1200/.../eval'
-```
-
-Response is JSON: `{"status":"ok","value":"…","diagnostics":[]}`, or `status:"error"` with
-an `exception` or compiler `diagnostics`. The session is **persistent** — `var ctx = …`
-in one call, use `ctx` in the next; `reset=true` starts fresh. Printed output
-(`System.out`) goes to the app's console, so read it back via the `log` endpoint. This is
-how you verify logic against the app's *own* objects and a live data context instead of
-reconstructing them — e.g. check what a keypath actually returns, or what a query yields.
-
-Restricted to loopback clients (it's arbitrary code execution) and dev mode only. A
-snippet that loops forever hangs its request — if you wedge it, the app needs a restart.
-
-## Read the runtime binding errors (`problems`)
-
-When a template binding fails at runtime, the app renders an inline error box into the
-page (the 🐶/🌿 boxes). Instead of scraping rendered HTML for them, read them as data:
-
-```bash
-curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/problems?tail=20'   # WebObjects/Wonder
-curl -s 'http://localhost:1200/ng/dev/problems?contains=WORepetition'           # ng-objects
-```
-
-JSON: `{"problems":[{"time","kind","element","message"}],"count"}`. `contains=`/`tail=`
-filter like `log`; `clear=true` empties the buffer — snapshot-then-clear to mark a clean
-baseline, exercise the app, then read back only the errors that exercise produced. This is
-the app-side complement to `/validate` (which catches template mistakes statically, in the
-editor): `problems` catches the ones that only surface when a real request renders the tag.
+`…/eval?snippet=…` (same URL form as `log`) evaluates a Java snippet inside the running
+JVM against its live classes and data — a REPL in the process, with a persistent session.
+POST long snippets as `text/plain` (form encoding shreds `=` and `&`). `…/problems`
+returns the binding-error boxes the app rendered, as JSON: `clear=true`, exercise, read
+back — only the errors that exercise produced. Details and shapes in the reference.
 
 ## A full iteration
 
 ```bash
-# ANY project edit (template or Java) → refresh first, always — nothing takes effect otherwise
-curl -s 'http://localhost:9485/refreshProject?project=MyApp'
-# template edit → also validate to catch mistakes before rendering
-curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'
-# Java edit → give the class redefinition a beat to land before exercising
-sleep 2
-# exercise the app, then read what it logged
-curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'
+curl -s 'http://localhost:9485/refreshProject?project=MyApp'                      # any edit → refresh first
+curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'    # template edit → also validate
+sleep 2                                                                           # Java edit → let the swap land
+curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'   # then read what it logged
 ```
 
 ## More detail
 
-`references/endpoints.md` has the full endpoint list (`/openComponent`,
-`/openJavaFile`, `/refresh`), parameter tables, runtime differences (ng vs WO),
-template-format conventions, and the human-side setup (plugin install, JBR +
-HotswapAgent). Read it when you need an endpoint not covered above or are helping
-the developer set things up.
+`references/endpoints.md` is the reference: every endpoint with parameters and response
+shapes, the runtime endpoints (`log`, `eval`, `problems`) in full, ng-vs-WO differences,
+template conventions, and the developer-side setup (plugin, JBR + HotswapAgent, `/watch`).

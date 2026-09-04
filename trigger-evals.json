@@ -1,22 +1,114 @@
 [
-  {"query": "I changed the binding on value in Main.wo/Main.wod to use a different keypath, can you make sure the running app picks it up?", "should_trigger": true},
-  {"query": "edited the appendToResponse method in SMWorkListPage.java — the page still shows the old behavior in the browser though", "should_trigger": true},
-  {"query": "can you check whether ASISearchPage.html has any template errors before I reload the page?", "should_trigger": true},
-  {"query": "I added a <wo:WOString value=\"$fullName\" /> to the component but it's throwing when the page renders, what's wrong with the template", "should_trigger": true},
-  {"query": "the wonder app isn't reflecting my changes to the wod file, I'm editing it outside eclipse with you", "should_trigger": true},
-  {"query": "just refactored a method body in our WOComponent subclass, trigger a rebuild so I can test it without restarting", "should_trigger": true},
-  {"query": "add a debug log line in the controller and then tell me what it printed when I hit the page — don't make me copy the eclipse console again", "should_trigger": true},
-  {"query": "I renamed a binding in the .wod and the page 500s now. figure out the template problem", "should_trigger": true},
-  {"query": "we're on project.base=ng, I just tweaked a standalone html template, does it validate?", "should_trigger": true},
-  {"query": "you edited UserDetail.java to add a new field and method — will the running app hot-swap that or do I need to restart?", "should_trigger": true},
-  {"query": "set up a brand new WebObjects project from scratch with maven and the wonder dependencies", "should_trigger": false},
-  {"query": "explain how WORepetition differs from WHILE loops in the request-response loop conceptually", "should_trigger": false},
-  {"query": "write a new WOComponent Java class that fetches users from the database and sorts them by signup date", "should_trigger": false},
-  {"query": "our production WO app on the deployment server is returning 500s, can you read the deployed app's logs over ssh", "should_trigger": false},
-  {"query": "convert this old apple-style .wod binding syntax to inline <wo:> bindings in the html, just the file edit", "should_trigger": false},
-  {"query": "the eclipse plugin itself won't build with tycho, the p2 repository step fails", "should_trigger": false},
-  {"query": "validate this JSON config file against our schema before I commit it", "should_trigger": false},
-  {"query": "I'm using IntelliJ not eclipse for this WO project, can you reload my template change", "should_trigger": false},
-  {"query": "refresh the npm dependencies in my frontend project and rebuild", "should_trigger": false},
-  {"query": "what's the difference between a standalone template and a bundle template in parsley", "should_trigger": false}
+  {
+    "query": "I changed the binding on value in Main.wo/Main.wod to use a different keypath, can you make sure the running app picks it up?",
+    "should_trigger": true
+  },
+  {
+    "query": "edited the appendToResponse method in SMWorkListPage.java — the page still shows the old behavior in the browser though",
+    "should_trigger": true
+  },
+  {
+    "query": "can you check whether ASISearchPage.html has any template errors before I reload the page?",
+    "should_trigger": true
+  },
+  {
+    "query": "I added a <wo:WOString value=\"$fullName\" /> to the component but it's throwing when the page renders, what's wrong with the template",
+    "should_trigger": true
+  },
+  {
+    "query": "the wonder app isn't reflecting my changes to the wod file, I'm editing it outside eclipse with you",
+    "should_trigger": true
+  },
+  {
+    "query": "just refactored a method body in our WOComponent subclass, trigger a rebuild so I can test it without restarting",
+    "should_trigger": true
+  },
+  {
+    "query": "add a debug log line in the controller and then tell me what it printed when I hit the page — don't make me copy the eclipse console again",
+    "should_trigger": true
+  },
+  {
+    "query": "I renamed a binding in the .wod and the page 500s now. figure out the template problem",
+    "should_trigger": true
+  },
+  {
+    "query": "we're on project.base=ng, I just tweaked a standalone html template, does it validate?",
+    "should_trigger": true
+  },
+  {
+    "query": "you edited UserDetail.java to add a new field and method — will the running app hot-swap that or do I need to restart?",
+    "should_trigger": true
+  },
+  {
+    "query": "set up a brand new WebObjects project from scratch with maven and the wonder dependencies",
+    "should_trigger": false
+  },
+  {
+    "query": "explain how WORepetition differs from WHILE loops in the request-response loop conceptually",
+    "should_trigger": false
+  },
+  {
+    "query": "write a new WOComponent Java class that fetches users from the database and sorts them by signup date",
+    "should_trigger": false
+  },
+  {
+    "query": "our production WO app on the deployment server is returning 500s, can you read the deployed app's logs over ssh",
+    "should_trigger": false
+  },
+  {
+    "query": "convert this old apple-style .wod binding syntax to inline <wo:> bindings in the html, just the file edit",
+    "should_trigger": false
+  },
+  {
+    "query": "the eclipse plugin itself won't build with tycho, the p2 repository step fails",
+    "should_trigger": false
+  },
+  {
+    "query": "validate this JSON config file against our schema before I commit it",
+    "should_trigger": false
+  },
+  {
+    "query": "I'm using IntelliJ not eclipse for this WO project, can you reload my template change",
+    "should_trigger": false
+  },
+  {
+    "query": "refresh the npm dependencies in my frontend project and rebuild",
+    "should_trigger": false
+  },
+  {
+    "query": "what's the difference between a standalone template and a bundle template in parsley",
+    "should_trigger": false
+  },
+  {
+    "query": "start the app so I can check the page in the browser",
+    "should_trigger": true
+  },
+  {
+    "query": "I changed the pom to add a dependency — restart the app",
+    "should_trigger": true
+  },
+  {
+    "query": "what can I bind on WOPopUpButton? which bindings are required?",
+    "should_trigger": true
+  },
+  {
+    "query": "run a snippet in the live app and tell me what session.user.fullName actually returns",
+    "should_trigger": true
+  },
+  {
+    "query": "which apps are running right now and on what port?",
+    "should_trigger": true
+  },
+  {
+    "query": "the app started failing on every request after your last change, everything is a 500 now",
+    "should_trigger": true
+  },
+  {
+    "query": "write unit tests for the date-formatting helper in our utils package",
+    "should_trigger": false
+  },
+  {
+    "query": "summarize what the WOPopUpButton class does from its javadoc, no need to run anything",
+    "should_trigger": false
+  }
 ]
