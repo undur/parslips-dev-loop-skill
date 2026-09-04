@@ -1,4 +1,4 @@
-# parslips-dev-loop (Claude skill)
+# parslips-skill
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) skill that teaches an
 agent to close the edit→build→run loop in **WebObjects / ng-objects / Wonder**
@@ -52,16 +52,16 @@ endpoint, and the skill teaches the agent to trust that index over its own docs
 Clone, then symlink the skill folder into your personal skills directory:
 
 ```bash
-git clone https://github.com/undur/parslips-dev-loop-skill.git
-ln -s "$PWD/parslips-dev-loop-skill/parslips-dev-loop" ~/.claude/skills/parslips-dev-loop
+git clone https://github.com/undur/parslips-skill.git
+ln -s "$PWD/parslips-skill/parslips-skill" ~/.claude/skills/parslips-skill
 ```
 
 (A symlink means `git pull` updates the skill in place. Or just `cp -r` the
-`parslips-dev-loop/` folder into `~/.claude/skills/` if you prefer a copy.)
+`parslips-skill/` folder into `~/.claude/skills/` if you prefer a copy.)
 
 ## Install (project — shared via a repo)
 
-Drop the `parslips-dev-loop/` folder into a project's `.claude/skills/` and commit
+Drop the `parslips-skill/` folder into a project's `.claude/skills/` and commit
 it; anyone (or any agent) working in that repo gets it automatically.
 
 ## Permissions (so the calls don't prompt)
@@ -92,7 +92,7 @@ or wonder-slim/ERExtensions.
   `/elementApi`, …) come from the Parslips plugin and are independent of it.
 
 Full details — every endpoint, parameters, runtime differences, and setup — are in
-[`parslips-dev-loop/references/endpoints.md`](parslips-dev-loop/references/endpoints.md).
+[`parslips-skill/references/endpoints.md`](parslips-skill/references/endpoints.md).
 
 ## License
 

@@ -1,5 +1,5 @@
 ---
-name: parslips-dev-loop
+name: parslips-skill
 description: >-
   Use this skill after you edit any WebObjects, ng-objects, Wonder, or Parsley
   file on disk to make the change take effect in the running app. Invoke
