@@ -26,7 +26,7 @@ hooks that let you — an agent editing files on disk — make changes take effe
 templates, launch and observe the app, and read its output, without the human relaying
 anything by hand.
 
-## The one rule
+## The two rules
 
 Eclipse only tracks edits made through its own editor. A file you change on disk sits
 unnoticed: no recompile, no resource copy, and the running app keeps its old state. From
@@ -38,11 +38,23 @@ app reads them from the output folder (`target/classes`), which Eclipse only ref
 when it notices a change — and a disk edit is never noticed until you refresh. Assume
 nothing has changed until you have.
 
+**Hand the workspace back settled.** The moment you stop, the human will open a
+component, run the app, or launch it from Eclipse — and they assume the workspace
+matches the disk. So before you finish a task, pause for their input, or report back,
+run `/refreshProject?project=NAME` for **every project you touched** — a dependency you
+edited counts as much as the app; refreshing only the app leaves the dependency unbuilt —
+and confirm each answers `ok`. Then `/problems?project=NAME` on those projects. Never
+hand back a mid-state: unrefreshed edits, half-copied resources, an unbuilt change, or
+errors you meant to fix later. If you stopped an app that was running when you started,
+start it again. If you must leave something broken, say so in your report, so the human
+doesn't have to do the close/clean/rebuild dance to find out.
+
 ## When to do what
 
 | You just… | Do this |
 |---|---|
 | Edited **anything** in the project | `GET /refreshProject?project=NAME` — always, first. Check the response (below). |
+| Finished, pausing, or reporting back | `GET /refreshProject?project=NAME` for **every** project you touched, each answering `ok`, then `GET /problems?project=NAME` on them — leave the workspace settled for the human (rule two) |
 | Edited a template (`.html`/`.wod`) | …then `GET /validate?component=NAME` — refresh makes it take effect, validate catches mistakes; they're separate |
 | Want to know what's running | `GET /status?app=NAME` — one entry **per launch config** of the project; read the one with `running:true` |
 | Need the app's port, framework, or readable dependencies | `GET /apps?name=NAME` — port, `runtime` (`ng`/`wo`, picks the endpoint URL form), and the dependencies whose source is open in the workspace |
@@ -180,6 +192,9 @@ curl -s 'http://localhost:9485/refreshProject?project=MyApp'                    
 curl -s 'http://localhost:9485/validate?component=SomeComponent&project=MyApp'    # template edit → also validate
 sleep 2                                                                           # Java edit → let the swap land
 curl -s 'http://localhost:1200/cgi-bin/WebObjects/MyApp.woa/log?contains=MYDEBUG&tail=40'   # then read what it logged
+# …and before handing back: every touched project refreshed and clean
+curl -s 'http://localhost:9485/refreshProject?project=my-model'                   # the dependency you edited too, not just the app
+curl -s 'http://localhost:9485/problems?project=MyApp'                            # {"projects":[]} → settled
 ```
 
 ## More detail
